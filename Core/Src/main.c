@@ -269,7 +269,7 @@ int main(void)
     int j=0;
 	  while (1)
 	  {
-      Adc3UartReport_Send();
+      ///Adc3UartReport_Send();
       HAL_Delay(1000);
 
       //State_RunCurrent();
