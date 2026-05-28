@@ -1,0 +1,80 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/f4oled.elf",
+            "name": "Debug with OpenOCD",
+            "request": "launch",
+            "preLaunchTask": "CMake: build",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/stm32f4x.cfg"
+            ],
+            "serverpath": "D:/openocd-20260302/OpenOCD-20260302-0.12.0/bin/openocd.exe",
+            "searchDir": [
+                "D:/openocd-20260302/OpenOCD-20260302-0.12.0/share/openocd/scripts"
+            ],
+            "overrideLaunchCommands": [
+                "monitor reset halt",
+                "load",
+                "compare-sections",
+                "monitor reset halt"
+            ],
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "gdbPath": "C:/Users/abcd1/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe"
+        },
+        {
+            "name": "DAPLink (pyOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "preLaunchTask": "CMake: build",
+            "servertype": "pyocd",
+            "cwd": "${workspaceFolder}",
+            "targetId": "stm32f407zgtx",
+            "executable": "${workspaceFolder}/build/Debug/f4oled.elf",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "raw",
+            "overrideGDBServerStartedRegex": "GDB server listening on port\\s+\\d+",
+            "serverArgs": [
+                "-f",
+                "10000000",
+                "-O",
+                "connect_mode=pre-reset",
+                "-O",
+                "reset_type=sysresetreq",
+                "-O",
+                "smart_flash=false",
+                "-O",
+                "cmsis_dap.deferred_transfers=false",
+                "-O",
+                "cmsis_dap.limit_packets=true"
+            ]
+        },
+        {
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/f4oled.elf",
+            "name": "ST-Link: run and pause",
+            "request": "launch",
+            "preLaunchTask": "CMake: build",
+            "type": "cortex-debug",
+            "servertype": "stlink",
+            "device": "STM32F407ZG",
+            "interface": "swd",
+            "serverpath": "C:/Users/abcd1/AppData/Local/stm32cube/bundles/stlink-gdbserver/7.13.0+st.3/bin/ST-LINK_gdbserver.exe",
+            "stm32cubeprogrammer": "C:/Users/abcd1/AppData/Local/stm32cube/bundles/programmer/2.22.0+st.1/bin",
+            "gdbPath": "C:/Users/abcd1/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+            "runToEntryPoint": "",
+            "postStartSessionCommands": [
+                "continue"
+            ],
+            "showDevDebugOutput": "none"
+        }
+    ]
+}

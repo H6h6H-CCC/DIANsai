@@ -1,0 +1,23 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: build",
+            "type": "shell",
+            "command": "C:/Users/abcd1/AppData/Local/stm32cube/bundles/cmake/4.2.3+st.1/bin/cmake.exe",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build/Debug",
+                "--parallel"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        }
+    ]
+}

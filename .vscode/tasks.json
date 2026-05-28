@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: build",
+            "type": "shell",
+            "command": "C:/Users/abcd1/AppData/Local/stm32cube/bundles/cmake/4.2.3+st.1/bin/cmake.exe",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build/Debug",
+                "--parallel"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "ST-Link: flash",
+            "type": "shell",
+            "detail": "Build, flash, verify, reset, and run.",
+            "command": "C:/Users/abcd1/AppData/Local/stm32cube/bundles/programmer/2.22.0+st.1/bin/STM32_Programmer_CLI.exe",
+            "args": [
+                "-c",
+                "port=SWD",
+                "freq=4000",
+                "mode=UR",
+                "reset=HWrst",
+                "-w",
+                "${workspaceFolder}/build/Debug/f4oled.elf",
+                "-v",
+                "-rst"
+            ],
+            "dependsOn": "CMake: build",
+            "problemMatcher": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        }
+    ]
+}
