@@ -270,7 +270,7 @@ int main(void)
 	  while (1)
 	  {
       ///Adc3UartReport_Send();
-      HAL_Delay(1000);
+      //HAL_Delay(1000);
       HAL_Delay(1000);
       HAL_Delay(1000);
       HAL_Delay(1000);
