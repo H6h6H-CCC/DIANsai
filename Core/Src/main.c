@@ -273,7 +273,7 @@ int main(void)
       //HAL_Delay(1000);
       HAL_Delay(1000);
       HAL_Delay(1000);
-      HAL_Delay(1000);
+      HAL_Delay(00);
       //State_RunCurrent();
       //Main_UpdateOledStatus();
       //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 2500);HAL_Delay(1000);
