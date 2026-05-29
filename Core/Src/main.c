@@ -103,6 +103,39 @@ void Main_UpdateOledStatus(void)
     OLED_ShowHexNum(4, 10, g_shijue_error_flag, 2);
 }
 
+static uint8_t Main_ReadBoValue(void)
+{
+    uint8_t value = 0U;
+
+    if (HAL_GPIO_ReadPin(bo1_GPIO_Port, bo1_Pin) == GPIO_PIN_SET) value |= 0x01U;
+    if (HAL_GPIO_ReadPin(bo2_GPIO_Port, bo2_Pin) == GPIO_PIN_SET) value |= 0x02U;
+    if (HAL_GPIO_ReadPin(bo3_GPIO_Port, bo3_Pin) == GPIO_PIN_SET) value |= 0x04U;
+    if (HAL_GPIO_ReadPin(bo4_GPIO_Port, bo4_Pin) == GPIO_PIN_SET) value |= 0x08U;
+
+    return value;
+}
+
+static uint8_t Main_IsSwitch1PressedOnce(void)
+{
+    static uint8_t last_pressed = 0U;
+    static uint8_t debounce = 0U;
+    uint8_t pressed = (HAL_GPIO_ReadPin(KAIGUAN1_GPIO_Port, KAIGUAN1_Pin) == GPIO_PIN_RESET);
+    uint8_t triggered = 0U;
+
+    if (debounce > 0U) {
+        debounce--;
+    }
+
+    if ((pressed != 0U) && (last_pressed == 0U) && (debounce == 0U)) {
+        triggered = 1U;
+        debounce = 5U;
+    }
+
+    last_pressed = pressed;
+    return triggered;
+}
+
+
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart == &huart4)
@@ -240,37 +273,22 @@ int main(void)
     while (1)
 	  {
       static char tx_buf[128];
-      int32_t tim3_delta;
-      int32_t tim4_delta;
       int tx_len;
+      uint8_t bo_value;
 
-      HAL_Delay(1000);
+      HAL_Delay(10);
+      if (Main_IsSwitch1PressedOnce() == 0U)
+      {
+        continue;
+      }
+
       if (huart4.gState != HAL_UART_STATE_READY)
       {
         continue;
       }
 
-      Encoder_GetAndClearReportDelta(&tim3_delta, &tim4_delta);
-      if (AngleSensor_IsReady())
-      {
-        float angle = AngleSensor_GetAngle();
-        uint32_t angle_x100 = (uint32_t)(angle * 100.0f + 0.5f);
-        tx_len = snprintf(tx_buf, sizeof(tx_buf),
-                          "angle=%lu.%02lu, tim3=%ld, tim4=%ld, count1=%u\r\n",
-                          (unsigned long)(angle_x100 / 100U),
-                          (unsigned long)(angle_x100 % 100U),
-                          (long)tim3_delta,
-                          (long)tim4_delta,
-                          (unsigned int)count1);
-      }
-      else
-      {
-        tx_len = snprintf(tx_buf, sizeof(tx_buf),
-                          "angle=not_ready, tim3=%ld, tim4=%ld, count1=%u\r\n",
-                          (long)tim3_delta,
-                          (long)tim4_delta,
-                          (unsigned int)count1);
-      }
+      bo_value = Main_ReadBoValue();
+      tx_len = snprintf(tx_buf, sizeof(tx_buf), "%u\r\n", (unsigned int)bo_value);
       HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)tx_len);
       //AngleSensor_ReportUart4();
       //State_RunCurrent();

@@ -57,16 +57,16 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define KAIGUAN3_Pin GPIO_PIN_13
-#define KAIGUAN3_GPIO_Port GPIOC
+#define KAIGUAN1_Pin GPIO_PIN_13
+#define KAIGUAN1_GPIO_Port GPIOC
 #define HUI5_Pin GPIO_PIN_2
 #define HUI5_GPIO_Port GPIOF
-#define KAIGUAN1_Pin GPIO_PIN_3
-#define KAIGUAN1_GPIO_Port GPIOF
+#define KAIGUAN2_Pin GPIO_PIN_3
+#define KAIGUAN2_GPIO_Port GPIOF
 #define HUI6_Pin GPIO_PIN_4
 #define HUI6_GPIO_Port GPIOF
-#define KAIGUAN2_Pin GPIO_PIN_5
-#define KAIGUAN2_GPIO_Port GPIOF
+#define KAIGUAN3_Pin GPIO_PIN_5
+#define KAIGUAN3_GPIO_Port GPIOF
 #define E1_Pin GPIO_PIN_0
 #define E1_GPIO_Port GPIOC
 #define E2_Pin GPIO_PIN_1
@@ -75,20 +75,20 @@ void Error_Handler(void);
 #define F1_GPIO_Port GPIOC
 #define F2_Pin GPIO_PIN_3
 #define F2_GPIO_Port GPIOC
-#define bo1_Pin GPIO_PIN_11
-#define bo1_GPIO_Port GPIOF
+#define bo4_Pin GPIO_PIN_11
+#define bo4_GPIO_Port GPIOF
 #define HUI8_Pin GPIO_PIN_12
 #define HUI8_GPIO_Port GPIOF
-#define bo2_Pin GPIO_PIN_13
-#define bo2_GPIO_Port GPIOF
+#define bo3_Pin GPIO_PIN_13
+#define bo3_GPIO_Port GPIOF
 #define HUI1_Pin GPIO_PIN_14
 #define HUI1_GPIO_Port GPIOF
-#define bo3_Pin GPIO_PIN_15
-#define bo3_GPIO_Port GPIOF
+#define bo2_Pin GPIO_PIN_15
+#define bo2_GPIO_Port GPIOF
 #define HUI2_Pin GPIO_PIN_0
 #define HUI2_GPIO_Port GPIOG
-#define bo4_Pin GPIO_PIN_1
-#define bo4_GPIO_Port GPIOG
+#define bo1_Pin GPIO_PIN_1
+#define bo1_GPIO_Port GPIOG
 #define HUI7_Pin GPIO_PIN_7
 #define HUI7_GPIO_Port GPIOE
 #define D2_Pin GPIO_PIN_14
@@ -97,10 +97,10 @@ void Error_Handler(void);
 #define D1_GPIO_Port GPIOB
 #define BEE_Pin GPIO_PIN_11
 #define BEE_GPIO_Port GPIOD
-#define HUI4_Pin GPIO_PIN_3
-#define HUI4_GPIO_Port GPIOG
-#define HUI3_Pin GPIO_PIN_4
+#define HUI3_Pin GPIO_PIN_3
 #define HUI3_GPIO_Port GPIOG
+#define HUI4_Pin GPIO_PIN_4
+#define HUI4_GPIO_Port GPIOG
 #define B2_Pin GPIO_PIN_5
 #define B2_GPIO_Port GPIOG
 #define B1_Pin GPIO_PIN_6
