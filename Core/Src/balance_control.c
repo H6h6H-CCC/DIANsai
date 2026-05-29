@@ -9,7 +9,7 @@
 #define BALANCE_SAFE_ANGLE    45.0f
 
 static PID_t s_angle_pid;
-static float s_target_angle = 0.0f;
+static float s_target_angle = 165.0f;
 static uint8_t s_enable = 1U;
 
 static float Balance_AngleError(float target, float measure)
@@ -24,8 +24,8 @@ static float Balance_AngleError(float target, float measure)
 
 void Balance_Init(void)
 {
-    PID_Init(&s_angle_pid, 20.0f, 0.0f, 0.8f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
-    s_target_angle = 0.0f;
+    PID_Init(&s_angle_pid, 300.0f, 0.0f, 0.8f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
+    s_target_angle = 165.0f;
     s_enable = 1U;
 }
 
@@ -52,7 +52,7 @@ void Balance_Update10ms(void)
         return;
     }
 
-    pwm = (int16_t)PID_Update(&s_angle_pid, 0.0f, -error, BALANCE_DT_S);
+    pwm = -(int16_t)PID_Update(&s_angle_pid, 0.0f, -error, BALANCE_DT_S);
     Moter_A(pwm);
     Moter_B(pwm);
 }

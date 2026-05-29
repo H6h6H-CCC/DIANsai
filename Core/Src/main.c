@@ -50,6 +50,9 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define PACKET_TIMEOUT 100  
+#define START_SWING_PWM -500
+#define START_SWING_MS 120U
+#define START_PAUSE_MS 1000U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -103,38 +106,17 @@ void Main_UpdateOledStatus(void)
     OLED_ShowHexNum(4, 10, g_shijue_error_flag, 2);
 }
 
-static uint8_t Main_ReadBoValue(void)
+static void Main_StartSwing(void)
 {
-    uint8_t value = 0U;
-
-    if (HAL_GPIO_ReadPin(bo1_GPIO_Port, bo1_Pin) == GPIO_PIN_SET) value |= 0x01U;
-    if (HAL_GPIO_ReadPin(bo2_GPIO_Port, bo2_Pin) == GPIO_PIN_SET) value |= 0x02U;
-    if (HAL_GPIO_ReadPin(bo3_GPIO_Port, bo3_Pin) == GPIO_PIN_SET) value |= 0x04U;
-    if (HAL_GPIO_ReadPin(bo4_GPIO_Port, bo4_Pin) == GPIO_PIN_SET) value |= 0x08U;
-
-    return value;
+    Balance_Enable(0U);
+    Moter_A(START_SWING_PWM);
+    Moter_B(START_SWING_PWM);
+    HAL_Delay(START_SWING_MS);
+    Moter_A(0);
+    Moter_B(0);
+    HAL_Delay(START_PAUSE_MS);
+    Balance_Enable(1U);
 }
-
-static uint8_t Main_IsSwitch1PressedOnce(void)
-{
-    static uint8_t last_pressed = 0U;
-    static uint8_t debounce = 0U;
-    uint8_t pressed = (HAL_GPIO_ReadPin(KAIGUAN1_GPIO_Port, KAIGUAN1_Pin) == GPIO_PIN_RESET);
-    uint8_t triggered = 0U;
-
-    if (debounce > 0U) {
-        debounce--;
-    }
-
-    if ((pressed != 0U) && (last_pressed == 0U) && (debounce == 0U)) {
-        triggered = 1U;
-        debounce = 5U;
-    }
-
-    last_pressed = pressed;
-    return triggered;
-}
-
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
@@ -252,6 +234,7 @@ int main(void)
     //JY61P_InitConfig();
 	Moter_Init();
   Balance_Init();
+  //Main_StartSwing();
   Adc3UartReport_Init();
   Adc3UartReport_Start();
   /* USER CODE END 2 */
@@ -268,28 +251,9 @@ int main(void)
     //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
     //rxBuffer2[0] = 0x01;
-    Moter_A(100);
-    Moter_B(100);
     while (1)
 	  {
-      static char tx_buf[128];
-      int tx_len;
-      uint8_t bo_value;
-
-      HAL_Delay(10);
-      if (Main_IsSwitch1PressedOnce() == 0U)
-      {
-        continue;
-      }
-
-      if (huart4.gState != HAL_UART_STATE_READY)
-      {
-        continue;
-      }
-
-      bo_value = Main_ReadBoValue();
-      tx_len = snprintf(tx_buf, sizeof(tx_buf), "%u\r\n", (unsigned int)bo_value);
-      HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)tx_len);
+      //HAL_Delay(100);
       //AngleSensor_ReportUart4();
       //State_RunCurrent();
       //Main_UpdateOledStatus();
@@ -387,7 +351,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       balance_tick = 0U;
       Encoder3_Update10ms();
       Encoder4_Update10ms();
-      //Balance_Update10ms();
+      Balance_Update10ms();
     }
 
     if (count >= 1000U)
