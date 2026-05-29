@@ -235,8 +235,8 @@ int main(void)
 	Moter_Init();
   Balance_Init();
   //Main_StartSwing();
-  Adc3UartReport_Init();
-  Adc3UartReport_Start();
+  //Adc3UartReport_Init();
+  //Adc3UartReport_Start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -259,12 +259,15 @@ int main(void)
       //Main_UpdateOledStatus();
       //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 2500);HAL_Delay(1000);
       
-      //   __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 500);
-      //   HAL_Delay(1000);
-      //   __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1500);
-      //   HAL_Delay(1000);
-      //  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 2500);
-      //   HAL_Delay(1000);
+        //__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 5000);
+       // __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 5000);
+        //HAL_Delay(5000);
+       // __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 10000);
+        ///__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 10000);
+       // HAL_Delay(5000);
+      //  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 1000);
+      //  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 1000);
+      //   HAL_Delay(5000);
      
     // //   Emm_V5_MMCL_Pos_Control(3, 1, 600, 200, 1600, true, true);
     // Emm_V5_MMCL_Pos_Control(4, 1, 600, 200, 1600, true, true);
@@ -346,7 +349,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     count++;
     balance_tick++;
 
-    if (balance_tick >= 10U)
+    if (balance_tick >= 5U)
     {
       balance_tick = 0U;
       Encoder3_Update10ms();
