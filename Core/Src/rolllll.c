@@ -306,7 +306,7 @@ static float roll_clamp(float value, float limit)
     return value;
 }
 
-static void roll_apply_edge_gain(float measure_x, float measure_y)
+void roll_apply_edge_gain(float measure_x, float measure_y)
 {
     float dx = measure_x - ROLL_CENTER_COORD;
     float dy = measure_y - ROLL_CENTER_COORD;
@@ -657,7 +657,7 @@ void RollCtrl_UpdateAngleOutput_duoji(float measure_angle_x, float measure_angle
 
     if (g_shijue_error_flag != 0U)
     {
-        __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, g_last_servo_pos_x);
+        (void)0;
         __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, g_last_servo_pos_y);
         return;
     }
@@ -777,7 +777,7 @@ void RollCtrl_UpdateAngleOutput_duoji(float measure_angle_x, float measure_angle
     g_last_servo_pos_x = pos_x;
     g_last_servo_pos_y = pos_y;
 
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, pos_x);
+    (void)0;
     __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pos_y);
 }
 

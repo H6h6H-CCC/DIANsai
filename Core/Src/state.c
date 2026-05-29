@@ -371,7 +371,7 @@ void State_RunCurrent(void)
 
             if (!has_target)
             {
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+                (void)0;
                 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
                 State_UpdateFromRxBuffer2();
                 if (g_state != 0x01U) break;
@@ -438,7 +438,7 @@ void State_RunCurrent(void)
 
             if (!has_target)
             {
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+                (void)0;
                 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
                 State_UpdateFromRxBuffer2();
                 if (g_state != 0x04U) break;
@@ -501,7 +501,7 @@ void State_RunCurrent(void)
 
             if (!seq_ready)
             {
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+                (void)0;
                 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
                 State_UpdateFromRxBuffer2();
                 if (g_state != 0x05U) break;
@@ -615,7 +615,7 @@ void State_RunCurrent(void)
 
             if (!seq_ready)
             {
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+                (void)0;
                 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
                 State_UpdateFromRxBuffer2();
                 if (g_state != 0x06U) break;
@@ -716,7 +716,7 @@ void State_RunCurrent(void)
 
             if (!seq_ready)
             {
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+                (void)0;
                 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
                 State_UpdateFromRxBuffer2();
                 if (g_state != 0x08U) break;
@@ -825,7 +825,7 @@ void State_RunCurrent(void)
 
             if (!seq_ready)
             {
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+                (void)0;
                 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
                 State_UpdateFromRxBuffer2();
                 if (g_state != 0x09U) break;
@@ -932,7 +932,7 @@ void State_RunCurrent(void)
                 out_x -= amp; /* xÏÂ½µ */
             }
 
-            __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint16_t)out_x);
+            (void)0;
             __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, (uint16_t)out_y);
             OLED_ShowHexNum(4,11, g_state,2);
             State_UpdateFromRxBuffer2();
@@ -948,7 +948,7 @@ void State_RunCurrent(void)
             OLED_ShowHexNum(4,11, g_state,2);
             State_UpdateFromRxBuffer2();
             if (g_state != 0x0BU) break;
-            __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+            (void)0;
             __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
             HAL_Delay(1);
         }
@@ -961,7 +961,7 @@ void State_RunCurrent(void)
             State_RunPidUpdate();
             State_UpdateFromRxBuffer2();
             if (g_state != 0x00U) break;
-            __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1350);
+            (void)0;
             __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
             HAL_Delay(1);
         }

@@ -39,6 +39,7 @@
 #include "state.h"
 #include "doji.h"
 #include "Emm_V5.h"
+#include "angle_sensor.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -91,7 +92,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void Main_UpdateOledStatus(void)
+void Main_UpdateOledStatus(void)
 {
     OLED_ShowNum(1, 10, g_shijue_x  , 3);
     OLED_ShowNum(2, 10, g_shijue_y    , 3);
@@ -181,7 +182,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
-  MX_TIM3_Init();
   MX_I2C1_Init();
   MX_SPI1_Init();
   MX_TIM1_Init();
@@ -192,9 +192,10 @@ int main(void)
   MX_TIM9_Init();
   MX_TIM13_Init();
   MX_TIM14_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 	
-    // 鍚姩UART DMA鎺ユ敹
+    // 鍚姩UART DMA鎺ユ�?
     HAL_TIM_Base_Start_IT(&htim9);
     HAL_UARTEx_ReceiveToIdle_DMA(&huart1,rxBuffer1,sizeof(rxBuffer1));
 		__HAL_DMA_DISABLE_IT(&hdma_usart1_rx,DMA_IT_HT);
@@ -209,10 +210,7 @@ int main(void)
   // {
   //   atk_ready = 1;
   // }
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
+  AngleSensor_Init();
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
@@ -229,12 +227,12 @@ int main(void)
     // RollCtrl_Init(
     //     0.2f, 0.00f, 0.0f, 80.0f, 40.0f,    /* 浣嶇疆鐜?*/
     //     2.5f, 0.8f, 4.0f, 2500.0f, 50.0f,  /* 閫熷害鐜?*/
-    //     0.0f,  0.0f,   0.0f, 1000.0f, 200.0f  /* 瑙掑害鐜?鏈敤) */
+    //     0.0f,  0.0f,   0.0f, 1000.0f, 200.0f  /* 瑙掑害鐜?鏈�? */
     // );
     RollCtrl_Init(
         0.0f, 0.00f, 0.0f, 80.0f, 40.0f,    /* 浣嶇疆鐜?*/
         0.0f, 0.0f, 0.0f, 2500.0f, 50.0f,  /* 閫熷害鐜?*/
-        0.0f,  0.0f,   0.0f, 1000.0f, 200.0f  /* 瑙掑害鐜?鏈敤) */
+        0.0f,  0.0f,   0.0f, 1000.0f, 200.0f  /* 瑙掑害鐜?鏈�? */
     );
     RollCtrl_SetCornerPidProfile(
         0.000f, 0.0f, 0.0f, 100.0f, 30.0f,   /* corner pos loop */
@@ -257,23 +255,15 @@ int main(void)
   // HAL_Delay(30);
   // Doji_MovePos(001,1500,0010);
   // HAL_Delay(30);
-  int i=0;
   State_Init();
-  //2200鈥斺€?200
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 5000);
-  
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 10000);
+  //2200鈥斺�?200
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
     //rxBuffer2[0] = 0x01;
-    int j=0;
 	  while (1)
 	  {
-      ///Adc3UartReport_Send();
-      //HAL_Delay(1000);
       HAL_Delay(1000);
-      HAL_Delay(1000);
-      HAL_Delay(1000);
+      AngleSensor_ReportUart4();
       //State_RunCurrent();
       //Main_UpdateOledStatus();
       //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 2500);HAL_Delay(1000);

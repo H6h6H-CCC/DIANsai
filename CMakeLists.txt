@@ -47,9 +47,11 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Core/Src/btn.c
     ${CMAKE_SOURCE_DIR}/Core/Src/adc3_uart_report.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/angle_sensor.c
     ${CMAKE_SOURCE_DIR}/Core/Src/doji.c
     ${CMAKE_SOURCE_DIR}/Core/Src/Emm_V5.c
     ${CMAKE_SOURCE_DIR}/Core/Src/encoder.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/hcsr04.c
     ${CMAKE_SOURCE_DIR}/Core/Src/rolllll.c
     ${CMAKE_SOURCE_DIR}/Core/Src/moter.c
     ${CMAKE_SOURCE_DIR}/Core/Src/OLED.c
