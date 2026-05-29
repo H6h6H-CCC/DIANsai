@@ -34,9 +34,7 @@
 #include "atk_ms53l0m.h"
 #include "moter.h"
 #include "encoder.h"
-#include "rolllll.h"
 #include "shijue.h"
-#include "state.h"
 #include "doji.h"
 #include "Emm_V5.h"
 #include "angle_sensor.h"
@@ -50,8 +48,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define PACKET_TIMEOUT 100  
-#define ROLL_VEL_DT_S 0.01f
-#define ROLL_POS_DT_S 0.02f
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -79,9 +75,6 @@ uint8_t atk_ready = 0;
 uint8_t atk_last_err = ATK_MS53L0M_ERROR;
 volatile uint8_t g_roll_flag_vel = 0;
 volatile uint8_t g_roll_flag_pos = 0;
-extern float g_roll_target_x;
-extern float g_roll_target_y;
-extern uint8_t g_state;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -215,32 +208,13 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-    //Encoder3_Init();
+    Encoder3_Init();
+    Encoder4_Init();
     /* Keep laser disabled here first, so UART4 debug output is not blocked. */
     atk_ready = 0;
     atk_last_err = ATK_MS53L0M_ERROR;
     // 浼犳劅鍣ㄥ垵濮嬪寲閰嶇疆
     //JY61P_InitConfig();
-
-    g_roll_target_x = 0.0f;
-    g_roll_target_y = 0.0f;
-    // RollCtrl_Init(
-    //     0.2f, 0.00f, 0.0f, 80.0f, 40.0f,    /* 浣嶇疆鐜?*/
-    //     2.5f, 0.8f, 4.0f, 2500.0f, 50.0f,  /* 閫熷害鐜?*/
-    //     0.0f,  0.0f,   0.0f, 1000.0f, 200.0f  /* 瑙掑害鐜?鏈�? */
-    // );
-    RollCtrl_Init(
-        0.0f, 0.00f, 0.0f, 80.0f, 40.0f,    /* 浣嶇疆鐜?*/
-        0.0f, 0.0f, 0.0f, 2500.0f, 50.0f,  /* 閫熷害鐜?*/
-        0.0f,  0.0f,   0.0f, 1000.0f, 200.0f  /* 瑙掑害鐜?鏈�? */
-    );
-    RollCtrl_SetCornerPidProfile(
-        0.000f, 0.0f, 0.0f, 100.0f, 30.0f,   /* corner pos loop */
-        0.0f,  0.0f,  0.0f, 2200.0f, 40.0f,  /* corner vel loop */
-        0.0f,  0.0f,  0.0f, 1000.0f, 200.0f  /* corner angle loop (unused) */
-    );
-    RollCtrl_Reset();
-
 	Moter_Init();
   Adc3UartReport_Init();
   Adc3UartReport_Start();
@@ -250,19 +224,37 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   
   OLED_Init();
-    //Moter_A(1000);
+    Moter_A(100);
+    Moter_B(100);
   // Doji_MovePos(001,1500,0010);
   // HAL_Delay(30);
   // Doji_MovePos(001,1500,0010);
   // HAL_Delay(30);
-  State_Init();
-  //2200鈥斺�?200
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
+  //2200鈥斺?200
+    //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
+   // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
     //rxBuffer2[0] = 0x01;
-	  while (1)
+    uint32_t encoder_tick_10ms = HAL_GetTick();
+    uint32_t encoder_tick_500ms = encoder_tick_10ms;
+
+    while (1)
 	  {
-      HAL_Delay(1000);
+      uint32_t now = HAL_GetTick();
+
+      if ((uint32_t)(now - encoder_tick_10ms) >= 10U)
+      {
+        encoder_tick_10ms += 10U;
+        Encoder3_Update10ms();
+        Encoder4_Update10ms();
+      }
+
+      if ((uint32_t)(now - encoder_tick_500ms) >= 500U)
+      {
+        encoder_tick_500ms += 500U;
+        Encoder_ReportUart4(count1);
+      }
+
+      HAL_Delay(1);
       //AngleSensor_ReportUart4();
       //State_RunCurrent();
       //Main_UpdateOledStatus();
@@ -282,18 +274,6 @@ int main(void)
     // Emm_V5_MMCL_Pos_Control(3, 1, 600, 200, 1700, true, true);
     // Emm_V5_MMCL_Pos_Control(4, 1, 600, 200, 1700, true, true);
     // Emm_V5_Multi_Motor_Cmd_UART5(0);HAL_Delay(100);
-      // if (g_roll_flag_pos)
-      // {
-      //   g_roll_flag_pos = 0;
-      //   RollCtrl_UpdatePos((float)g_shijue_x, (float)g_shijue_y, ROLL_POS_DT_S);
-      // }
-
-      // if (g_roll_flag_vel)
-      // {
-      //   g_roll_flag_vel = 0;
-      //   RollCtrl_UpdateVel(g_shijue_vx, g_shijue_vy, ROLL_VEL_DT_S);
-      //   RollCtrl_UpdateAngleOutput_duoji(0.0f, 0.0f, ROLL_VEL_DT_S);
-      // }
       //UpdateDisplay();
 	    //atk_ms53l0m_show_distance(atk_ready, atk_id, &atk_distance);
       //  OLED_ShowHexNum(1, 1, rxBuffer1[1], 2);
@@ -362,28 +342,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM9)
   {
-    static uint8_t tick_33ms = 0;
-    static uint8_t tick_66ms = 0;
-
-    tick_33ms++;
-    tick_66ms++;
-    if (tick_33ms >= 33)
-    {
-      tick_33ms = 0;
-      g_roll_flag_vel = 1;
-    }
-    if (tick_66ms >= 66)
-    {
-      tick_66ms = 0;
-      g_roll_flag_pos = 1;
-    }
-
     count++;
-    if (count >= 1000)
-    {
-      count = 0;
-      count1++;
-    }
+      if(count >= 1000) // 100ms
+      {
+        count = 0;
+        count1++;
+      }
   }
 }
 

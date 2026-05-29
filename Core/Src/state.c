@@ -2,7 +2,6 @@
 #include "main.h"
 #include "tim.h"
 #include "shijue.h"
-#include "rolllll.h"
 #include "oled.h"
 
 #define HOLD_RADIUS_UNIT    12.0f
@@ -23,7 +22,29 @@
 #define STATE_PRE_TARGET_7_Y 245.461f
 #define STATE_PRE_TARGET_9_X 239.088f
 #define STATE_PRE_TARGET_9_Y 239.088f
+float g_roll_target_x = 0.0f;
+float g_roll_target_y = 0.0f;
 
+static void RollCtrl_UpdatePos(float measure_x, float measure_y, float dt_s)
+{
+    (void)measure_x;
+    (void)measure_y;
+    (void)dt_s;
+}
+
+static void RollCtrl_UpdateVel(float measure_vx, float measure_vy, float dt_s)
+{
+    (void)measure_vx;
+    (void)measure_vy;
+    (void)dt_s;
+}
+
+static void RollCtrl_UpdateAngleOutput_duoji(float measure_angle_x, float measure_angle_y, float dt_s)
+{
+    (void)measure_angle_x;
+    (void)measure_angle_y;
+    (void)dt_s;
+}
 extern uint8_t rxBuffer2[256];
 extern volatile uint16_t g_rx2_size;
 extern volatile uint8_t g_roll_flag_vel;
