@@ -22,6 +22,7 @@ int32_t Encoder4_GetTotal(void);
 void Encoder4_Reset(void);
 void Encoder4_Update10ms(void);
 void Encoder_ReportUart4(uint8_t count1);
+void Encoder_GetAndClearReportDelta(int32_t *tim3_delta, int32_t *tim4_delta);
 
 #ifdef __cplusplus
 }

@@ -3,12 +3,15 @@
 #include "usart.h"
 #include <stdio.h>
 
+#define ENCODER3_DIR (-1)
+#define ENCODER4_DIR (1)
+
 static int16_t s_last_cnt = 0;
 static int32_t s_total = 0;
-static int32_t s_report_delta = 0;
+static volatile int32_t s_report_delta = 0;
 static int16_t s_last_cnt4 = 0;
 static int32_t s_total4 = 0;
-static int32_t s_report_delta4 = 0;
+static volatile int32_t s_report_delta4 = 0;
 
 void Encoder3_Init(void)
 {
@@ -27,7 +30,7 @@ int16_t Encoder3_GetCount(void)
 int16_t Encoder3_GetDelta(void)
 {
     int16_t now = Encoder3_GetCount();
-    int16_t delta = (int16_t)(now - s_last_cnt);
+    int16_t delta = (int16_t)((now - s_last_cnt) * ENCODER3_DIR);
     s_last_cnt = now;
     s_total += delta;
     return delta;
@@ -87,7 +90,7 @@ int16_t Encoder4_GetCount(void)
 int16_t Encoder4_GetDelta(void)
 {
     int16_t now = Encoder4_GetCount();
-    int16_t delta = (int16_t)(now - s_last_cnt4);
+    int16_t delta = (int16_t)((now - s_last_cnt4) * ENCODER4_DIR);
     s_last_cnt4 = now;
     s_total4 += delta;
     return delta;
@@ -130,4 +133,14 @@ void Encoder_ReportUart4(uint8_t count1)
         s_report_delta = 0;
         s_report_delta4 = 0;
     }
+}
+
+void Encoder_GetAndClearReportDelta(int32_t *tim3_delta, int32_t *tim4_delta)
+{
+    __disable_irq();
+    *tim3_delta = s_report_delta;
+    *tim4_delta = s_report_delta4;
+    s_report_delta = 0;
+    s_report_delta4 = 0;
+    __enable_irq();
 }

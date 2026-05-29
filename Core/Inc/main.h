@@ -97,10 +97,10 @@ void Error_Handler(void);
 #define D1_GPIO_Port GPIOB
 #define BEE_Pin GPIO_PIN_11
 #define BEE_GPIO_Port GPIOD
-#define HUI3_Pin GPIO_PIN_3
-#define HUI3_GPIO_Port GPIOG
-#define HUI4_Pin GPIO_PIN_4
+#define HUI4_Pin GPIO_PIN_3
 #define HUI4_GPIO_Port GPIOG
+#define HUI3_Pin GPIO_PIN_4
+#define HUI3_GPIO_Port GPIOG
 #define B2_Pin GPIO_PIN_5
 #define B2_GPIO_Port GPIOG
 #define B1_Pin GPIO_PIN_6

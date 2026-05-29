@@ -38,6 +38,8 @@
 #include "doji.h"
 #include "Emm_V5.h"
 #include "angle_sensor.h"
+#include "balance_control.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -216,6 +218,7 @@ int main(void)
     // 浼犳劅鍣ㄥ垵濮嬪寲閰嶇疆
     //JY61P_InitConfig();
 	Moter_Init();
+  Balance_Init();
   Adc3UartReport_Init();
   Adc3UartReport_Start();
   /* USER CODE END 2 */
@@ -224,8 +227,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   
   OLED_Init();
-    Moter_A(100);
-    Moter_B(100);
   // Doji_MovePos(001,1500,0010);
   // HAL_Delay(30);
   // Doji_MovePos(001,1500,0010);
@@ -234,27 +235,43 @@ int main(void)
     //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
     //rxBuffer2[0] = 0x01;
-    uint32_t encoder_tick_10ms = HAL_GetTick();
-    uint32_t encoder_tick_500ms = encoder_tick_10ms;
-
+    Moter_A(100);
+    Moter_B(100);
     while (1)
 	  {
-      uint32_t now = HAL_GetTick();
+      static char tx_buf[128];
+      int32_t tim3_delta;
+      int32_t tim4_delta;
+      int tx_len;
 
-      if ((uint32_t)(now - encoder_tick_10ms) >= 10U)
+      HAL_Delay(1000);
+      if (huart4.gState != HAL_UART_STATE_READY)
       {
-        encoder_tick_10ms += 10U;
-        Encoder3_Update10ms();
-        Encoder4_Update10ms();
+        continue;
       }
 
-      if ((uint32_t)(now - encoder_tick_500ms) >= 500U)
+      Encoder_GetAndClearReportDelta(&tim3_delta, &tim4_delta);
+      if (AngleSensor_IsReady())
       {
-        encoder_tick_500ms += 500U;
-        Encoder_ReportUart4(count1);
+        float angle = AngleSensor_GetAngle();
+        uint32_t angle_x100 = (uint32_t)(angle * 100.0f + 0.5f);
+        tx_len = snprintf(tx_buf, sizeof(tx_buf),
+                          "angle=%lu.%02lu, tim3=%ld, tim4=%ld, count1=%u\r\n",
+                          (unsigned long)(angle_x100 / 100U),
+                          (unsigned long)(angle_x100 % 100U),
+                          (long)tim3_delta,
+                          (long)tim4_delta,
+                          (unsigned int)count1);
       }
-
-      HAL_Delay(1);
+      else
+      {
+        tx_len = snprintf(tx_buf, sizeof(tx_buf),
+                          "angle=not_ready, tim3=%ld, tim4=%ld, count1=%u\r\n",
+                          (long)tim3_delta,
+                          (long)tim4_delta,
+                          (unsigned int)count1);
+      }
+      HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)tx_len);
       //AngleSensor_ReportUart4();
       //State_RunCurrent();
       //Main_UpdateOledStatus();
@@ -342,12 +359,24 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM9)
   {
+    static uint8_t balance_tick = 0U;
+
     count++;
-      if(count >= 1000) // 100ms
-      {
-        count = 0;
-        count1++;
-      }
+    balance_tick++;
+
+    if (balance_tick >= 10U)
+    {
+      balance_tick = 0U;
+      Encoder3_Update10ms();
+      Encoder4_Update10ms();
+      //Balance_Update10ms();
+    }
+
+    if (count >= 1000U)
+    {
+      count = 0;
+      count1++;
+    }
   }
 }
 
