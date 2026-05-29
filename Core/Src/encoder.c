@@ -7,9 +7,11 @@
 #define ENCODER4_DIR (1)
 
 static int16_t s_last_cnt = 0;
+static int16_t s_last_delta = 0;
 static int32_t s_total = 0;
 static volatile int32_t s_report_delta = 0;
 static int16_t s_last_cnt4 = 0;
+static int16_t s_last_delta4 = 0;
 static int32_t s_total4 = 0;
 static volatile int32_t s_report_delta4 = 0;
 
@@ -18,6 +20,7 @@ void Encoder3_Init(void)
     HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
     __HAL_TIM_SET_COUNTER(&htim3, 0);
     s_last_cnt = 0;
+    s_last_delta = 0;
     s_total = 0;
     s_report_delta = 0;
 }
@@ -45,13 +48,20 @@ void Encoder3_Reset(void)
 {
     __HAL_TIM_SET_COUNTER(&htim3, 0);
     s_last_cnt = 0;
+    s_last_delta = 0;
     s_total = 0;
     s_report_delta = 0;
 }
 
 void Encoder3_Update10ms(void)
 {
-    s_report_delta += Encoder3_GetDelta();
+    s_last_delta = Encoder3_GetDelta();
+    s_report_delta += s_last_delta;
+}
+
+int16_t Encoder3_GetLastDelta(void)
+{
+    return s_last_delta;
 }
 
 void Encoder3_ReportUart4(uint8_t count1)
@@ -78,6 +88,7 @@ void Encoder4_Init(void)
     HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
     __HAL_TIM_SET_COUNTER(&htim4, 0);
     s_last_cnt4 = 0;
+    s_last_delta4 = 0;
     s_total4 = 0;
     s_report_delta4 = 0;
 }
@@ -105,13 +116,20 @@ void Encoder4_Reset(void)
 {
     __HAL_TIM_SET_COUNTER(&htim4, 0);
     s_last_cnt4 = 0;
+    s_last_delta4 = 0;
     s_total4 = 0;
     s_report_delta4 = 0;
 }
 
 void Encoder4_Update10ms(void)
 {
-    s_report_delta4 += Encoder4_GetDelta();
+    s_last_delta4 = Encoder4_GetDelta();
+    s_report_delta4 += s_last_delta4;
+}
+
+int16_t Encoder4_GetLastDelta(void)
+{
+    return s_last_delta4;
 }
 
 void Encoder_ReportUart4(uint8_t count1)

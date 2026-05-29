@@ -3,15 +3,16 @@
 #include "moter.h"
 #include "pid.h"
 
-#define BALANCE_DT_S          0.01f
-#define BALANCE_PWM_LIMIT     700.0f
+#define BALANCE_DT_S          0.005f
+#define BALANCE_PWM_LIMIT     1000.0f
 #define BALANCE_I_LIMIT       100.0f
-#define BALANCE_SAFE_ANGLE    50.0f
-#define BALANCE_KP_BOOST_ANGLE 30.0f
+#define BALANCE_MIN_ANGLE     151.5f
+#define BALANCE_MAX_ANGLE     179.5f
 
 static PID_t s_angle_pid;
 static float s_target_angle = 165.0f;
 static uint8_t s_enable = 1U;
+static volatile int16_t s_last_pwm = 0;
 
 static float Balance_AngleError(float target, float measure)
 {
@@ -25,8 +26,8 @@ static float Balance_AngleError(float target, float measure)
 
 void Balance_Init(void)
 {
-    PID_Init(&s_angle_pid, 1000.0f, 0.0f, 0.8f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
-    s_target_angle = 165.0f;
+    PID_Init(&s_angle_pid, 230.0f, 0.5f, 10.0f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
+    s_target_angle = 164.0f;
     s_enable = 1U;
 }
 
@@ -35,12 +36,12 @@ void Balance_Update10ms(void)
     float angle;
     float error;
     float abs_error;
-    float old_kp;
     int16_t pwm;
 
     if ((s_enable == 0U) || (AngleSensor_IsReady() == 0U)) {
         Moter_A(0);
         Moter_B(0);
+        s_last_pwm = 0;
         PID_Reset(&s_angle_pid);
         return;
     }
@@ -49,23 +50,19 @@ void Balance_Update10ms(void)
     error = Balance_AngleError(s_target_angle, angle);
     abs_error = (error < 0.0f) ? -error : error;
 
-    if (abs_error > BALANCE_SAFE_ANGLE) {
+    if ((angle < BALANCE_MIN_ANGLE) || (angle > BALANCE_MAX_ANGLE)) {
         Moter_A(0);
         Moter_B(0);
+        s_last_pwm = 0;
         PID_Reset(&s_angle_pid);
         return;
     }
 
-    old_kp = s_angle_pid.kp;
-    if (abs_error > BALANCE_KP_BOOST_ANGLE) {
-        s_angle_pid.kp = old_kp * 2.0f;
-    }
-
     pwm = -(int16_t)PID_Update(&s_angle_pid, 0.0f, -error, BALANCE_DT_S);
-    s_angle_pid.kp = old_kp;
 
     Moter_A(pwm);
     Moter_B(pwm);
+    s_last_pwm = pwm;
 }
 
 void Balance_SetTargetAngle(float angle_deg)
@@ -84,6 +81,12 @@ void Balance_Enable(uint8_t enable)
     if (enable == 0U) {
         Moter_A(0);
         Moter_B(0);
+        s_last_pwm = 0;
         PID_Reset(&s_angle_pid);
     }
+}
+
+int16_t Balance_GetLastPwm(void)
+{
+    return s_last_pwm;
 }

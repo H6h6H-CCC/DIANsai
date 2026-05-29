@@ -12,6 +12,7 @@ void Balance_Update10ms(void);
 void Balance_SetTargetAngle(float angle_deg);
 void Balance_SetPid(float kp, float ki, float kd);
 void Balance_Enable(uint8_t enable);
+int16_t Balance_GetLastPwm(void);
 
 #ifdef __cplusplus
 }

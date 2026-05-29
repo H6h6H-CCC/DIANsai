@@ -39,11 +39,17 @@
 #include "Emm_V5.h"
 #include "angle_sensor.h"
 #include "balance_control.h"
+#include "gray.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum
+{
+  MAIN_STATE_TRACK = 1,
+  MAIN_STATE_BALANCE = 2
+} MainState_t;
 
 /* USER CODE END PTD */
 
@@ -53,6 +59,10 @@
 #define START_SWING_PWM -500
 #define START_SWING_MS 120U
 #define START_PAUSE_MS 1000U
+#define TRACK_BASE_PWM 350
+#define TRACK_KP 12
+#define TRACK_STOP_BLACK_COUNT 3U
+#define TRACK_FIRST_STOP_MS 1000U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -80,6 +90,7 @@ uint8_t atk_ready = 0;
 uint8_t atk_last_err = ATK_MS53L0M_ERROR;
 volatile uint8_t g_roll_flag_vel = 0;
 volatile uint8_t g_roll_flag_pos = 0;
+static volatile MainState_t g_main_state = MAIN_STATE_TRACK;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -116,6 +127,66 @@ static void Main_StartSwing(void)
     Moter_B(0);
     HAL_Delay(START_PAUSE_MS);
     Balance_Enable(1U);
+}
+
+static uint8_t Main_CountBits(uint8_t value)
+{
+    uint8_t count = 0U;
+
+    for (uint8_t i = 0U; i < 8U; i++) {
+        if ((value & (uint8_t)(1U << i)) != 0U) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static void Main_SetState(MainState_t state)
+{
+    Moter_A(0);
+    Moter_B(0);
+
+    g_main_state = state;
+    if (state == MAIN_STATE_BALANCE) {
+        Balance_Enable(1U);
+    } else {
+        Balance_Enable(0U);
+    }
+}
+
+static void Main_TrackRun(void)
+{
+    static uint8_t stop_count = 0U;
+    static uint8_t last_three_black = 0U;
+    uint8_t gray = Gray_Read();
+    uint8_t three_black = (Main_CountBits(gray) >= TRACK_STOP_BLACK_COUNT);
+    int16_t error = Gray_GetError();
+    int16_t turn = error * TRACK_KP;
+
+    if ((three_black != 0U) && (last_three_black == 0U)) {
+        stop_count++;
+        Moter_A(0);
+        Moter_B(0);
+
+        if (stop_count >= 2U) {
+            Main_SetState(MAIN_STATE_BALANCE);
+            last_three_black = three_black;
+            return;
+        }
+
+        HAL_Delay(TRACK_FIRST_STOP_MS);
+    }
+
+    last_three_black = three_black;
+
+    if (gray == 0U) {
+        Moter_A(TRACK_BASE_PWM);
+        Moter_B(TRACK_BASE_PWM);
+    } else {
+        Moter_A(TRACK_BASE_PWM - turn);
+        Moter_B(TRACK_BASE_PWM + turn);
+    }
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
@@ -234,6 +305,7 @@ int main(void)
     //JY61P_InitConfig();
 	Moter_Init();
   Balance_Init();
+  Balance_Enable(0U);
   //Main_StartSwing();
   //Adc3UartReport_Init();
   //Adc3UartReport_Start();
@@ -251,9 +323,40 @@ int main(void)
     //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
     //rxBuffer2[0] = 0x01;
+    Moter_A(0);
+    Moter_B(0);
+    Main_SetState(MAIN_STATE_BALANCE);
     while (1)
 	  {
-      //HAL_Delay(100);
+      static char tx_buf[32];
+      static uint32_t last_angle_tx_tick = 0U;
+      int tx_len;
+
+      if (g_main_state == MAIN_STATE_TRACK)
+      {
+        Main_TrackRun();
+      }
+
+      if ((HAL_GetTick() - last_angle_tx_tick >= 1000U) && (huart4.gState == HAL_UART_STATE_READY))
+      {
+        last_angle_tx_tick = HAL_GetTick();
+        if (AngleSensor_IsReady())
+        {
+          float angle = AngleSensor_GetAngle();
+          uint32_t angle_x100 = (uint32_t)(angle * 100.0f + 0.5f);
+          tx_len = snprintf(tx_buf, sizeof(tx_buf),
+                            "%lu.%02lu\r\n",
+                            (unsigned long)(angle_x100 / 100U),
+                            (unsigned long)(angle_x100 % 100U));
+        }
+        else
+        {
+          tx_len = snprintf(tx_buf, sizeof(tx_buf), "0.00\r\n");
+        }
+        HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)tx_len);
+      }
+
+      HAL_Delay(10);
       //AngleSensor_ReportUart4();
       //State_RunCurrent();
       //Main_UpdateOledStatus();
@@ -354,7 +457,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       balance_tick = 0U;
       Encoder3_Update10ms();
       Encoder4_Update10ms();
-      Balance_Update10ms();
+      if (g_main_state == MAIN_STATE_BALANCE)
+      {
+        Balance_Update10ms();
+      }
     }
 
     if (count >= 1000U)
