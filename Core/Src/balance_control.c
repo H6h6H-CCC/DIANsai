@@ -41,10 +41,10 @@ static float Balance_GetPosition(void)
 
 void Balance_Init(void)
 {
-    PID_Init(&s_angle_pid, 250.0f, 1.0f, 11.0f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
-    PID_Init(&s_speed_pid, 0.0011f, 0.000001f, 0.000000001f, BALANCE_SPEED_ANGLE_LIMIT, BALANCE_SPEED_I_LIMIT);
-    PID_Init(&s_position_pid, 0.00001f, 0.0f, 0.0f, BALANCE_POS_SPEED_LIMIT, BALANCE_POS_I_LIMIT);
-    s_target_angle = 163.7f;
+    PID_Init(&s_angle_pid, 250.0f, 1.0f, 20.0f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
+    PID_Init(&s_speed_pid, 0.0018f, 0.000002f, 0.00000000f, BALANCE_SPEED_ANGLE_LIMIT, BALANCE_SPEED_I_LIMIT);
+    PID_Init(&s_position_pid, 0.0002f, 0.0000000001f, 0.0f, BALANCE_POS_SPEED_LIMIT, BALANCE_POS_I_LIMIT);
+    s_target_angle = 163.8f;
     s_target_speed = 0.0f;
     s_target_position = Balance_GetPosition();
     s_hold_position_enable = 1U;

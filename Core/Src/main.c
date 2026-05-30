@@ -49,7 +49,8 @@
 typedef enum
 {
   MAIN_STATE_TRACK = 1,
-  MAIN_STATE_BALANCE = 2
+  MAIN_STATE_BALANCE = 2,
+  MAIN_STATE_WHEEL_LOCK = 3
 } MainState_t;
 
 /* USER CODE END PTD */
@@ -60,14 +61,19 @@ typedef enum
 #define START_SWING_PWM 1000
 #define START_SWING_B_COMP 50
 #define START_SWING_MIN_MS 120
-#define START_SWING_MAX_MS 140
-#define START_SWING_STEP_MS 2
-#define START_CATCH_ANGLE 4.0f
+#define START_SWING_MAX_MS 150
+#define START_SWING_STEP_MS 13
+#define START_CATCH_ANGLE 5.5f
+#define START_CATCH_RATE_DPS 0.5f
 #define START_ANGLE_WAIT_MS 500U
 #define TRACK_BASE_PWM 350
 #define TRACK_KP 12
 #define TRACK_STOP_BLACK_COUNT 3U
 #define TRACK_FIRST_STOP_MS 1000U
+#define BALANCE_RUN_MS 3000U
+#define BALANCE_RESTART_DELAY_MS 500U
+#define BALANCE_RESTART_MAX_COUNT 3U
+#define WHEEL_LOCK_KP 40
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -96,6 +102,9 @@ uint8_t atk_last_err = ATK_MS53L0M_ERROR;
 volatile uint8_t g_roll_flag_vel = 0;
 volatile uint8_t g_roll_flag_pos = 0;
 static volatile MainState_t g_main_state = MAIN_STATE_TRACK;
+static uint32_t g_state_start_tick = 0U;
+static uint32_t g_balance_out_tick = 0U;
+static uint8_t g_balance_restart_count = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -133,15 +142,31 @@ static int16_t Main_CompensateRightSwingPwm(int16_t pwm)
     return 0;
 }
 
+static float Main_AngleDiff(float target, float measure)
+{
+    float error = target - measure;
+
+    while (error > 180.0f) error -= 360.0f;
+    while (error < -180.0f) error += 360.0f;
+
+    return error;
+}
+
 static void Main_StartSwing(void)
 {
     uint32_t start_tick = HAL_GetTick();
     uint32_t last_switch_tick;
+    uint32_t last_angle_tick;
     int16_t switch_interval = START_SWING_MIN_MS;
     int16_t interval_step = START_SWING_STEP_MS;
     float angle;
+    float last_angle;
     float target_angle;
     float error;
+    float angle_delta;
+    float angle_rate;
+    uint32_t now_tick;
+    uint32_t dt_ms;
     int16_t swing_pwm = START_SWING_PWM;
 
     Balance_Enable(0U);
@@ -156,15 +181,31 @@ static void Main_StartSwing(void)
     }
 
     target_angle = Balance_GetTargetAngle();
-    // angle = AngleSensor_GetAngle();
+    last_angle = AngleSensor_GetAngle();
+    last_angle_tick = HAL_GetTick();
     // swing_pwm = (angle > target_angle) ? START_SWING_PWM : -START_SWING_PWM;
     last_switch_tick = HAL_GetTick();
 
     while (1) {
+        now_tick = HAL_GetTick();
         angle = AngleSensor_GetAngle();
-        error = target_angle - angle;
+        error = Main_AngleDiff(target_angle, angle);
+        dt_ms = now_tick - last_angle_tick;
+        if (dt_ms == 0U) {
+            angle_rate = 999.0f;
+        } else {
+            angle_delta = Main_AngleDiff(angle, last_angle);
+            angle_rate = angle_delta * 1000.0f / (float)dt_ms;
+            if (angle_rate < 0.0f) {
+                angle_rate = -angle_rate;
+            }
+        }
+        last_angle = angle;
+        last_angle_tick = now_tick;
 
-        if ((error < START_CATCH_ANGLE) && (error > -START_CATCH_ANGLE)) {
+        if ((error < START_CATCH_ANGLE) &&
+            (error > -START_CATCH_ANGLE) &&
+            (angle_rate < START_CATCH_RATE_DPS)) {
             break;
         }
 
@@ -208,11 +249,66 @@ static void Main_SetState(MainState_t state)
     Moter_B(0);
 
     g_main_state = state;
+    g_state_start_tick = HAL_GetTick();
+    if (state != MAIN_STATE_BALANCE) {
+        g_balance_out_tick = 0U;
+    }
     if (state == MAIN_STATE_BALANCE) {
         Balance_Enable(1U);
     } else {
         Balance_Enable(0U);
     }
+}
+
+static void Main_BalanceRestartWatch(void)
+{
+    float angle;
+
+    if (g_main_state != MAIN_STATE_BALANCE) {
+        return;
+    }
+
+    if (AngleSensor_IsReady() == 0U) {
+        g_balance_out_tick = 0U;
+        return;
+    }
+
+    angle = AngleSensor_GetAngle();
+    if ((angle >= Balance_GetMinAngle()) && (angle <= Balance_GetMaxAngle())) {
+        g_balance_out_tick = 0U;
+        return;
+    }
+
+    if (g_balance_out_tick == 0U) {
+        g_balance_out_tick = HAL_GetTick();
+        return;
+    }
+
+    if ((HAL_GetTick() - g_balance_out_tick) < BALANCE_RESTART_DELAY_MS) {
+        return;
+    }
+
+    Moter_A(0);
+    Moter_B(0);
+    Balance_Enable(0U);
+    g_balance_out_tick = 0U;
+
+    if (g_balance_restart_count >= BALANCE_RESTART_MAX_COUNT) {
+        return;
+    }
+
+    g_balance_restart_count++;
+    Main_StartSwing();
+    Main_SetState(MAIN_STATE_BALANCE);
+}
+
+static void Main_WheelLockUpdate5ms(void)
+{
+    int16_t left_speed = Encoder4_GetLastDelta();
+    int16_t right_speed = Encoder3_GetLastDelta();
+
+    Moter_A((int16_t)(-left_speed * WHEEL_LOCK_KP));
+    Moter_B((int16_t)(-right_speed * WHEEL_LOCK_KP));
 }
 
 static void Main_TrackRun(void)
@@ -392,6 +488,15 @@ int main(void)
       {
         Main_TrackRun();
       }
+      else if (g_main_state == MAIN_STATE_BALANCE)
+      {
+        Main_BalanceRestartWatch();
+      }
+      // else if ((g_main_state == MAIN_STATE_BALANCE) &&
+      //          ((HAL_GetTick() - g_state_start_tick) >= BALANCE_RUN_MS))
+      // {
+      //   Main_SetState(MAIN_STATE_WHEEL_LOCK);
+      // }
 
       HAL_Delay(10);
       //AngleSensor_ReportUart4();
@@ -497,6 +602,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       if (g_main_state == MAIN_STATE_BALANCE)
       {
         Balance_Update10ms();
+      }
+      else if (g_main_state == MAIN_STATE_WHEEL_LOCK)
+      {
+        Main_WheelLockUpdate5ms();
       }
     }
 
