@@ -9,7 +9,7 @@
 #define BALANCE_I_LIMIT       100.0f
 #define BALANCE_MIN_ANGLE     151.5f
 #define BALANCE_MAX_ANGLE     179.5f
-#define BALANCE_SPEED_ANGLE_LIMIT 1.3f
+#define BALANCE_SPEED_ANGLE_LIMIT 1.25f
 #define BALANCE_SPEED_I_LIMIT 30.0f
 
 static PID_t s_angle_pid;
@@ -33,7 +33,7 @@ void Balance_Init(void)
 {
     PID_Init(&s_angle_pid, 235.0f, 0.7f, 11.0f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
     PID_Init(&s_speed_pid, 0.00115f, 0.0f, 0.0f, BALANCE_SPEED_ANGLE_LIMIT, BALANCE_SPEED_I_LIMIT);
-    s_target_angle = 163.8f;
+    s_target_angle = 163.88f;
     s_target_speed = 0.0f;
     s_enable = 1U;
 }
