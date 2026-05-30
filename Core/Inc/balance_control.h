@@ -10,6 +10,9 @@ extern "C" {
 void Balance_Init(void);
 void Balance_Update10ms(void);
 void Balance_SetTargetAngle(float angle_deg);
+float Balance_GetTargetAngle(void);
+float Balance_GetMinAngle(void);
+float Balance_GetMaxAngle(void);
 void Balance_SetPid(float kp, float ki, float kd);
 void Balance_Enable(uint8_t enable);
 int16_t Balance_GetLastPwm(void);

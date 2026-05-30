@@ -9,7 +9,7 @@
 #define BALANCE_I_LIMIT       100.0f
 #define BALANCE_MIN_ANGLE     151.5f
 #define BALANCE_MAX_ANGLE     179.5f
-#define BALANCE_SPEED_ANGLE_LIMIT 1.25f
+#define BALANCE_SPEED_ANGLE_LIMIT 1.35f
 #define BALANCE_SPEED_I_LIMIT 30.0f
 
 static PID_t s_angle_pid;
@@ -32,8 +32,8 @@ static float Balance_AngleError(float target, float measure)
 void Balance_Init(void)
 {
     PID_Init(&s_angle_pid, 235.0f, 0.7f, 11.0f, BALANCE_PWM_LIMIT, BALANCE_I_LIMIT);
-    PID_Init(&s_speed_pid, 0.00115f, 0.0f, 0.0f, BALANCE_SPEED_ANGLE_LIMIT, BALANCE_SPEED_I_LIMIT);
-    s_target_angle = 163.88f;
+    PID_Init(&s_speed_pid, 0.0012f, 0.0f, 0.0f, BALANCE_SPEED_ANGLE_LIMIT, BALANCE_SPEED_I_LIMIT);
+    s_target_angle = 163.5f;
     s_target_speed = 0.0f;
     s_enable = 1U;
 }
@@ -83,6 +83,21 @@ void Balance_Update10ms(void)
 void Balance_SetTargetAngle(float angle_deg)
 {
     s_target_angle = angle_deg;
+}
+
+float Balance_GetTargetAngle(void)
+{
+    return s_target_angle;
+}
+
+float Balance_GetMinAngle(void)
+{
+    return BALANCE_MIN_ANGLE;
+}
+
+float Balance_GetMaxAngle(void)
+{
+    return BALANCE_MAX_ANGLE;
 }
 
 void Balance_SetPid(float kp, float ki, float kd)

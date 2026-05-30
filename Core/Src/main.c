@@ -56,9 +56,13 @@ typedef enum
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define PACKET_TIMEOUT 100  
-#define START_SWING_PWM -500
-#define START_SWING_MS 120U
-#define START_PAUSE_MS 1000U
+#define START_SWING_PWM 1000
+#define START_SWING_B_COMP 50
+#define START_SWING_MIN_MS 110U
+#define START_SWING_MAX_MS 130U
+#define START_SWING_STEP_MS 7U
+#define START_CATCH_ANGLE 3.5f
+#define START_ANGLE_WAIT_MS 500U
 #define TRACK_BASE_PWM 350
 #define TRACK_KP 12
 #define TRACK_STOP_BLACK_COUNT 3U
@@ -117,15 +121,94 @@ void Main_UpdateOledStatus(void)
     OLED_ShowHexNum(4, 10, g_shijue_error_flag, 2);
 }
 
+static int16_t Main_CompensateRightSwingPwm(int16_t pwm)
+{
+    if (pwm > START_SWING_B_COMP) {
+        return pwm - START_SWING_B_COMP;
+    }
+    if (pwm < -START_SWING_B_COMP) {
+        return pwm + START_SWING_B_COMP;
+    }
+    return 0;
+}
+
+static void Main_ReportAngleUart4(void)
+{
+    static char tx_buf[32];
+    static uint32_t last_angle_tx_tick = 0U;
+    int tx_len;
+
+    if ((HAL_GetTick() - last_angle_tx_tick < 1000U) || (huart4.gState != HAL_UART_STATE_READY)) {
+        return;
+    }
+
+    last_angle_tx_tick = HAL_GetTick();
+    if (AngleSensor_IsReady()) {
+        float angle = AngleSensor_GetAngle();
+        uint32_t angle_x100 = (uint32_t)(angle * 100.0f + 0.5f);
+        tx_len = snprintf(tx_buf, sizeof(tx_buf),
+                          "%lu.%02lu\r\n",
+                          (unsigned long)(angle_x100 / 100U),
+                          (unsigned long)(angle_x100 % 100U));
+    } else {
+        tx_len = snprintf(tx_buf, sizeof(tx_buf), "0.00\r\n");
+    }
+
+    HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)tx_len);
+}
+
 static void Main_StartSwing(void)
 {
+    uint32_t start_tick = HAL_GetTick();
+    uint32_t last_switch_tick;
+    uint32_t switch_interval = START_SWING_MIN_MS;
+    int16_t interval_step = START_SWING_STEP_MS;
+    float angle;
+    float target_angle;
+    float error;
+    int16_t swing_pwm = START_SWING_PWM;
+
     Balance_Enable(0U);
-    Moter_A(START_SWING_PWM);
-    Moter_B(START_SWING_PWM);
-    HAL_Delay(START_SWING_MS);
-    Moter_A(0);
-    Moter_B(0);
-    HAL_Delay(START_PAUSE_MS);
+
+    while ((AngleSensor_IsReady() == 0U) && ((HAL_GetTick() - start_tick) < START_ANGLE_WAIT_MS)) {
+        HAL_Delay(1);
+    }
+
+    if (AngleSensor_IsReady() == 0U) {
+        Balance_Enable(1U);
+        return;
+    }
+
+    target_angle = Balance_GetTargetAngle();
+    last_switch_tick = HAL_GetTick();
+
+    while (1) {
+        angle = AngleSensor_GetAngle();
+        error = target_angle - angle;
+
+        if ((error < START_CATCH_ANGLE) && (error > -START_CATCH_ANGLE)) {
+            break;
+        }
+
+        if ((HAL_GetTick() - last_switch_tick) >= switch_interval) {
+            last_switch_tick = HAL_GetTick();
+            swing_pwm = -swing_pwm;
+            switch_interval += interval_step;
+            if (switch_interval >= START_SWING_MAX_MS) {
+                switch_interval = START_SWING_MAX_MS;
+                interval_step = -START_SWING_STEP_MS;
+            } else if (switch_interval <= START_SWING_MIN_MS) {
+                switch_interval = START_SWING_MIN_MS;
+                interval_step = START_SWING_STEP_MS;
+            }
+        }
+
+        Moter_A(swing_pwm);
+        Moter_B(Main_CompensateRightSwingPwm(swing_pwm));
+        Main_ReportAngleUart4();
+        HAL_Delay(5);
+    }
+
     Balance_Enable(1U);
 }
 
@@ -306,7 +389,7 @@ int main(void)
 	Moter_Init();
   Balance_Init();
   Balance_Enable(0U);
-  //Main_StartSwing();
+  Main_StartSwing();
   //Adc3UartReport_Init();
   //Adc3UartReport_Start();
   /* USER CODE END 2 */
@@ -328,33 +411,12 @@ int main(void)
     Main_SetState(MAIN_STATE_BALANCE);
     while (1)
 	  {
-      static char tx_buf[32];
-      static uint32_t last_angle_tx_tick = 0U;
-      int tx_len;
-
       if (g_main_state == MAIN_STATE_TRACK)
       {
         Main_TrackRun();
       }
 
-      if ((HAL_GetTick() - last_angle_tx_tick >= 1000U) && (huart4.gState == HAL_UART_STATE_READY))
-      {
-        last_angle_tx_tick = HAL_GetTick();
-        if (AngleSensor_IsReady())
-        {
-          float angle = AngleSensor_GetAngle();
-          uint32_t angle_x100 = (uint32_t)(angle * 100.0f + 0.5f);
-          tx_len = snprintf(tx_buf, sizeof(tx_buf),
-                            "%lu.%02lu\r\n",
-                            (unsigned long)(angle_x100 / 100U),
-                            (unsigned long)(angle_x100 % 100U));
-        }
-        else
-        {
-          tx_len = snprintf(tx_buf, sizeof(tx_buf), "0.00\r\n");
-        }
-        HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)tx_len);
-      }
+      Main_ReportAngleUart4();
 
       HAL_Delay(10);
       //AngleSensor_ReportUart4();
