@@ -20,7 +20,6 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
-#include "i2c.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -80,7 +79,7 @@ typedef enum
 #define TRACK_KP 12
 #define TRACK_STOP_BLACK_COUNT 3U
 #define TRACK_FIRST_STOP_MS 1000U
-#define BALANCE_STOP_ENCODER_COUNT 150000L
+#define BALANCE_STOP_ENCODER_COUNT 160000L
 #define BALANCE_3S_BACK_ANGLE_OFFSET -0.5f
 #define BALANCE_RESTART_DELAY_MS 500U
 #define BALANCE_RESTART_MAX_COUNT 3U
@@ -120,6 +119,7 @@ static uint32_t g_balance_out_tick = 0U;
 static uint32_t g_oled_angle_tick = 0U;
 static float g_balance_base_target_angle = 0.0f;
 static uint8_t g_balance_restart_count = 0U;
+static volatile uint8_t g_uart4_mode_request = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -192,15 +192,32 @@ static uint8_t Main_ReadBoValue(void)
     return value;
 }
 
+static MainMode_t Main_TakeUart4ModeRequest(void)
+{
+    uint8_t request = g_uart4_mode_request;
+
+    if ((request < 1U) || (request > 4U)) {
+        return MAIN_MODE_NONE;
+    }
+
+    g_uart4_mode_request = 0U;
+    return (MainMode_t)request;
+}
+
 static MainMode_t Main_WaitModeSelect(void)
 {
     uint8_t bo_value;
+    MainMode_t uart_mode;
 
     Moter_A(0);
     Moter_B(0);
     Balance_Enable(0U);
 
     while (Main_IsKeyPressed() == 0U) {
+        uart_mode = Main_TakeUart4ModeRequest();
+        if (uart_mode != MAIN_MODE_NONE) {
+            return uart_mode;
+        }
         HAL_Delay(10);
     }
     HAL_Delay(20);
@@ -273,6 +290,13 @@ static uint8_t Main_StartSwing(void)
     last_switch_tick = HAL_GetTick();
 
     while (1) {
+        if (g_uart4_mode_request != 0U) {
+            Moter_A(0);
+            Moter_B(0);
+            Balance_Enable(0U);
+            return 0U;
+        }
+
         if ((g_main_mode == MAIN_MODE_BALANCE_ALWAYS) && (Main_IsKey12Pressed() != 0U)) {
             Moter_A(0);
             Moter_B(0);
@@ -300,6 +324,10 @@ static uint8_t Main_StartSwing(void)
             (error > -START_CATCH_ANGLE) &&
             (angle_rate < START_CATCH_RATE_DPS)) {
             break;
+        }
+
+        if (g_main_mode == MAIN_MODE_BALANCE_OLED_3_RESTART) {
+            Main_ShowAngleOled();
         }
 
         if ((HAL_GetTick() - last_switch_tick) >= (uint32_t)switch_interval) {
@@ -478,7 +506,8 @@ static void Main_TrackRun(void)
         Moter_B(0);
 
         if (stop_count >= 2U) {
-            Main_SetState(MAIN_STATE_BALANCE);
+            Main_SetState(MAIN_STATE_STOP);
+            g_main_mode = MAIN_MODE_NONE;
             last_three_black = three_black;
             return;
         }
@@ -501,11 +530,9 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart == &huart4)
     {
-      // for (int i = 0; i < Size; i++)
-      // {
-      //     ProcessReceivedData(rxBuffer4[i]);
-      // }
-      HAL_UART_Transmit_DMA(&huart4,rxBuffer4,Size);
+      if ((Size > 0U) && (rxBuffer4[0] >= 0x01U) && (rxBuffer4[0] <= 0x04U)) {
+        g_uart4_mode_request = rxBuffer4[0];
+      }
       HAL_UARTEx_ReceiveToIdle_DMA(&huart4, rxBuffer4, sizeof(rxBuffer4));
       __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
     }
@@ -571,7 +598,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
-  MX_I2C1_Init();
   MX_SPI1_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
@@ -636,7 +662,13 @@ int main(void)
     Main_SetState(MAIN_STATE_STOP);
     while (1)
 	  {
-      if (g_main_mode == MAIN_MODE_NONE)
+      MainMode_t uart_mode = Main_TakeUart4ModeRequest();
+
+      if (uart_mode != MAIN_MODE_NONE)
+      {
+        Main_StartMode(uart_mode);
+      }
+      else if (g_main_mode == MAIN_MODE_NONE)
       {
         Main_StartMode(Main_WaitModeSelect());
       }

@@ -2,8 +2,8 @@
 #include "gpio.h"
 
 /*“˝Ω≈≈‰÷√*/
-#define OLED_W_SCL(x)	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_8,x)
-#define OLED_W_SDA(x)	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_9,x)
+#define OLED_W_SCL(x)	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_6,x)
+#define OLED_W_SDA(x)	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_7,x)
 
 void my_delay_us(uint32_t us)
 {
