@@ -50,8 +50,18 @@ typedef enum
 {
   MAIN_STATE_TRACK = 1,
   MAIN_STATE_BALANCE = 2,
-  MAIN_STATE_WHEEL_LOCK = 3
+  MAIN_STATE_WHEEL_LOCK = 3,
+  MAIN_STATE_STOP = 4
 } MainState_t;
+
+typedef enum
+{
+  MAIN_MODE_NONE = 0,
+  MAIN_MODE_TRACK = 1,
+  MAIN_MODE_BALANCE_ALWAYS = 2,
+  MAIN_MODE_BALANCE_3S_STOP = 3,
+  MAIN_MODE_BALANCE_OLED_3_RESTART = 4
+} MainMode_t;
 
 /* USER CODE END PTD */
 
@@ -62,18 +72,20 @@ typedef enum
 #define START_SWING_B_COMP 50
 #define START_SWING_MIN_MS 120
 #define START_SWING_MAX_MS 150
-#define START_SWING_STEP_MS 13
-#define START_CATCH_ANGLE 5.5f
-#define START_CATCH_RATE_DPS 0.5f
+#define START_SWING_STEP_MS 20
+#define START_CATCH_ANGLE 5.0f
+#define START_CATCH_RATE_DPS 0.4f
 #define START_ANGLE_WAIT_MS 500U
 #define TRACK_BASE_PWM 350
 #define TRACK_KP 12
 #define TRACK_STOP_BLACK_COUNT 3U
 #define TRACK_FIRST_STOP_MS 1000U
-#define BALANCE_RUN_MS 3000U
+#define BALANCE_STOP_ENCODER_COUNT 150000L
+#define BALANCE_3S_BACK_ANGLE_OFFSET -0.5f
 #define BALANCE_RESTART_DELAY_MS 500U
 #define BALANCE_RESTART_MAX_COUNT 3U
 #define WHEEL_LOCK_KP 40
+#define KEY_PRESSED GPIO_PIN_RESET
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -102,8 +114,11 @@ uint8_t atk_last_err = ATK_MS53L0M_ERROR;
 volatile uint8_t g_roll_flag_vel = 0;
 volatile uint8_t g_roll_flag_pos = 0;
 static volatile MainState_t g_main_state = MAIN_STATE_TRACK;
+static MainMode_t g_main_mode = MAIN_MODE_NONE;
 static uint32_t g_state_start_tick = 0U;
 static uint32_t g_balance_out_tick = 0U;
+static uint32_t g_oled_angle_tick = 0U;
+static float g_balance_base_target_angle = 0.0f;
 static uint8_t g_balance_restart_count = 0U;
 /* USER CODE END PV */
 
@@ -152,7 +167,78 @@ static float Main_AngleDiff(float target, float measure)
     return error;
 }
 
-static void Main_StartSwing(void)
+static uint8_t Main_IsKeyPressed(void)
+{
+    return (HAL_GPIO_ReadPin(KAIGUAN1_GPIO_Port, KAIGUAN1_Pin) == KEY_PRESSED) ||
+           (HAL_GPIO_ReadPin(KAIGUAN2_GPIO_Port, KAIGUAN2_Pin) == KEY_PRESSED) ||
+           (HAL_GPIO_ReadPin(KAIGUAN3_GPIO_Port, KAIGUAN3_Pin) == KEY_PRESSED);
+}
+
+static uint8_t Main_IsKey12Pressed(void)
+{
+    return (HAL_GPIO_ReadPin(KAIGUAN1_GPIO_Port, KAIGUAN1_Pin) == KEY_PRESSED) ||
+           (HAL_GPIO_ReadPin(KAIGUAN2_GPIO_Port, KAIGUAN2_Pin) == KEY_PRESSED);
+}
+
+static uint8_t Main_ReadBoValue(void)
+{
+    uint8_t value = 0U;
+
+    if (HAL_GPIO_ReadPin(bo1_GPIO_Port, bo1_Pin) == GPIO_PIN_SET) value |= 0x01U;
+    if (HAL_GPIO_ReadPin(bo2_GPIO_Port, bo2_Pin) == GPIO_PIN_SET) value |= 0x02U;
+    if (HAL_GPIO_ReadPin(bo3_GPIO_Port, bo3_Pin) == GPIO_PIN_SET) value |= 0x04U;
+    if (HAL_GPIO_ReadPin(bo4_GPIO_Port, bo4_Pin) == GPIO_PIN_SET) value |= 0x08U;
+
+    return value;
+}
+
+static MainMode_t Main_WaitModeSelect(void)
+{
+    uint8_t bo_value;
+
+    Moter_A(0);
+    Moter_B(0);
+    Balance_Enable(0U);
+
+    while (Main_IsKeyPressed() == 0U) {
+        HAL_Delay(10);
+    }
+    HAL_Delay(20);
+    bo_value = Main_ReadBoValue();
+    while (Main_IsKeyPressed() != 0U) {
+        HAL_Delay(10);
+    }
+
+    if (bo_value == 1U) return MAIN_MODE_TRACK;
+    if (bo_value == 2U) return MAIN_MODE_BALANCE_ALWAYS;
+    if (bo_value == 3U) return MAIN_MODE_BALANCE_3S_STOP;
+    if (bo_value == 4U) return MAIN_MODE_BALANCE_OLED_3_RESTART;
+    return MAIN_MODE_NONE;
+}
+
+static void Main_ShowAngleOled(void)
+{
+    int32_t angle_x100;
+    float angle;
+    float angle_zero;
+
+    if ((HAL_GetTick() - g_oled_angle_tick) < 100U) {
+        return;
+    }
+    g_oled_angle_tick = HAL_GetTick();
+
+    if (AngleSensor_IsReady() == 0U) {
+        OLED_ShowSignedNum(4, 1, 0, 5);
+        return;
+    }
+
+    angle = AngleSensor_GetAngle();
+    angle_zero = Main_AngleDiff(angle, Balance_GetTargetAngle());
+    angle_x100 = (int32_t)(angle_zero * 100.0f);
+    OLED_ShowSignedNum(4, 1, angle_x100, 5);
+}
+
+static uint8_t Main_StartSwing(void)
 {
     uint32_t start_tick = HAL_GetTick();
     uint32_t last_switch_tick;
@@ -177,7 +263,7 @@ static void Main_StartSwing(void)
 
     if (AngleSensor_IsReady() == 0U) {
         Balance_Enable(1U);
-        return;
+        return 1U;
     }
 
     target_angle = Balance_GetTargetAngle();
@@ -187,6 +273,13 @@ static void Main_StartSwing(void)
     last_switch_tick = HAL_GetTick();
 
     while (1) {
+        if ((g_main_mode == MAIN_MODE_BALANCE_ALWAYS) && (Main_IsKey12Pressed() != 0U)) {
+            Moter_A(0);
+            Moter_B(0);
+            Balance_Enable(0U);
+            return 0U;
+        }
+
         now_tick = HAL_GetTick();
         angle = AngleSensor_GetAngle();
         error = Main_AngleDiff(target_angle, angle);
@@ -228,6 +321,7 @@ static void Main_StartSwing(void)
     }
 
     Balance_Enable(1U);
+    return 1U;
 }
 
 static uint8_t Main_CountBits(uint8_t value)
@@ -241,6 +335,20 @@ static uint8_t Main_CountBits(uint8_t value)
     }
 
     return count;
+}
+
+static int32_t Main_Abs32(int32_t value)
+{
+    return (value < 0) ? -value : value;
+}
+
+static uint8_t Main_IsBalanceStopDistanceReached(void)
+{
+    int32_t left_count = Main_Abs32(Encoder4_GetTotal());
+    int32_t right_count = Main_Abs32(Encoder3_GetTotal());
+    int32_t average_count = (left_count + right_count) / 2;
+
+    return (average_count >= BALANCE_STOP_ENCODER_COUNT);
 }
 
 static void Main_SetState(MainState_t state)
@@ -288,18 +396,62 @@ static void Main_BalanceRestartWatch(void)
         return;
     }
 
+    if ((g_main_mode != MAIN_MODE_BALANCE_ALWAYS) &&
+        (g_balance_restart_count >= BALANCE_RESTART_MAX_COUNT)) {
+        return;
+    }
+
     Moter_A(0);
     Moter_B(0);
     Balance_Enable(0U);
     g_balance_out_tick = 0U;
 
-    if (g_balance_restart_count >= BALANCE_RESTART_MAX_COUNT) {
-        return;
+    g_balance_restart_count++;
+    if (Main_StartSwing() != 0U) {
+        Main_SetState(MAIN_STATE_BALANCE);
+    } else {
+        Main_SetState(MAIN_STATE_STOP);
+        g_main_mode = MAIN_MODE_NONE;
+        while (Main_IsKey12Pressed() != 0U) {
+            HAL_Delay(10);
+        }
+    }
+}
+
+static void Main_StartMode(MainMode_t mode)
+{
+    g_main_mode = mode;
+    g_balance_restart_count = 0U;
+    g_balance_out_tick = 0U;
+    g_oled_angle_tick = 0U;
+
+    if (mode == MAIN_MODE_BALANCE_3S_STOP) {
+        Balance_SetTargetAngle(g_balance_base_target_angle + BALANCE_3S_BACK_ANGLE_OFFSET);
+    } else {
+        Balance_SetTargetAngle(g_balance_base_target_angle);
     }
 
-    g_balance_restart_count++;
-    Main_StartSwing();
-    Main_SetState(MAIN_STATE_BALANCE);
+    if (mode == MAIN_MODE_TRACK) {
+        Main_SetState(MAIN_STATE_TRACK);
+    } else if ((mode == MAIN_MODE_BALANCE_ALWAYS) ||
+               (mode == MAIN_MODE_BALANCE_3S_STOP) ||
+               (mode == MAIN_MODE_BALANCE_OLED_3_RESTART)) {
+        if (mode == MAIN_MODE_BALANCE_3S_STOP) {
+            Encoder3_Reset();
+            Encoder4_Reset();
+        }
+        if (Main_StartSwing() != 0U) {
+            Main_SetState(MAIN_STATE_BALANCE);
+        } else {
+            Main_SetState(MAIN_STATE_STOP);
+            g_main_mode = MAIN_MODE_NONE;
+            while (Main_IsKey12Pressed() != 0U) {
+                HAL_Delay(10);
+            }
+        }
+    } else {
+        Main_SetState(MAIN_STATE_STOP);
+    }
 }
 
 static void Main_WheelLockUpdate5ms(void)
@@ -461,8 +613,8 @@ int main(void)
     //JY61P_InitConfig();
 	Moter_Init();
   Balance_Init();
+  g_balance_base_target_angle = Balance_GetTargetAngle();
   Balance_Enable(0U);
-  Main_StartSwing();
   //Adc3UartReport_Init();
   //Adc3UartReport_Start();
   /* USER CODE END 2 */
@@ -481,16 +633,43 @@ int main(void)
     //rxBuffer2[0] = 0x01;
     Moter_A(0);
     Moter_B(0);
-    Main_SetState(MAIN_STATE_BALANCE);
+    Main_SetState(MAIN_STATE_STOP);
     while (1)
 	  {
-      if (g_main_state == MAIN_STATE_TRACK)
+      if (g_main_mode == MAIN_MODE_NONE)
+      {
+        Main_StartMode(Main_WaitModeSelect());
+      }
+      else if ((g_main_mode == MAIN_MODE_BALANCE_ALWAYS) && (Main_IsKey12Pressed() != 0U))
+      {
+        Main_SetState(MAIN_STATE_STOP);
+        g_main_mode = MAIN_MODE_NONE;
+        while (Main_IsKey12Pressed() != 0U) {
+          HAL_Delay(10);
+        }
+      }
+      else if (g_main_state == MAIN_STATE_TRACK)
       {
         Main_TrackRun();
       }
       else if (g_main_state == MAIN_STATE_BALANCE)
       {
-        Main_BalanceRestartWatch();
+        if ((g_main_mode == MAIN_MODE_BALANCE_ALWAYS) ||
+            (g_main_mode == MAIN_MODE_BALANCE_OLED_3_RESTART))
+        {
+          Main_BalanceRestartWatch();
+        }
+        else if ((g_main_mode == MAIN_MODE_BALANCE_3S_STOP) &&
+                 (Main_IsBalanceStopDistanceReached() != 0U))
+        {
+          Main_SetState(MAIN_STATE_STOP);
+          g_main_mode = MAIN_MODE_NONE;
+        }
+
+        if (g_main_mode == MAIN_MODE_BALANCE_OLED_3_RESTART)
+        {
+          Main_ShowAngleOled();
+        }
       }
       // else if ((g_main_state == MAIN_STATE_BALANCE) &&
       //          ((HAL_GetTick() - g_state_start_tick) >= BALANCE_RUN_MS))
