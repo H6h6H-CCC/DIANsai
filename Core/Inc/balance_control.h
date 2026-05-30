@@ -15,6 +15,9 @@ float Balance_GetMinAngle(void);
 float Balance_GetMaxAngle(void);
 void Balance_SetPid(float kp, float ki, float kd);
 void Balance_Enable(uint8_t enable);
+void Balance_HoldPositionEnable(uint8_t enable);
+void Balance_ResetHoldPosition(void);
+uint8_t Balance_IsHoldPositionEnabled(void);
 int16_t Balance_GetLastPwm(void);
 
 #ifdef __cplusplus
