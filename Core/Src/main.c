@@ -21,8 +21,6 @@
 #include "adc.h"
 #include "dma.h"
 #include "spi.h"
-#include "stm32f4xx_hal.h"
-#include "stm32f4xx_hal_tim.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -39,6 +37,7 @@
 #include "doji.h"
 #include "Emm_V5.h"
 #include "gray.h"
+#include "TJC_SCREEN.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -398,33 +397,38 @@ int main(void)
     //Main_SetState(MAIN_STATE_STOP);
     while (1)
     {     
-      HAL_Delay(800);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 000);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 000);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 000);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 000);
-      Moter_A(00);
-      Moter_B(00);
-      Moter_C(000);
-      Moter_D(000);
-      HAL_Delay(800);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 500);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 500);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 500);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 500);
-      Moter_A(500);
-      Moter_B(500);
-      Moter_C(500);
-      Moter_D(500);
-      HAL_Delay(800);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1000);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 1000);
-      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 1000);
-      Moter_A(1000);
-      Moter_B(1000);
-      Moter_C(1000);
-      Moter_D(1000);
+
+      TJC_SetT0Number(111);
+      HAL_Delay(1000);
+      TJC_SetT0Number(-123);
+      HAL_Delay(1000);
+      // HAL_Delay(800);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 000);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 000);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 000);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 000);
+      // Moter_A(00);
+      // Moter_B(00);
+      // Moter_C(000);
+      // Moter_D(000);
+      // HAL_Delay(800);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 500);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 500);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 500);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 500);
+      // Moter_A(500);
+      // Moter_B(500);
+      // Moter_C(500);
+      // Moter_D(500);
+      // HAL_Delay(800);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1000);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 1000);
+      // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 1000);
+      // Moter_A(1000);
+      // Moter_B(1000);
+      // Moter_C(1000);
+      // Moter_D(1000);
 // MainMode_t uart_mode = Main_TakeUart4ModeRequest();  
 //       if (uart_mode != MAIN_MODE_NONE)
 //       {

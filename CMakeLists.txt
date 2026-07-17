@@ -58,6 +58,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Core/Src/atk_ms53l0m_uart.c
     ${CMAKE_SOURCE_DIR}/Core/Src/jy61p.c
     ${CMAKE_SOURCE_DIR}/Core/Src/shijue.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/tjc_screen.c
 )
 
 # Add include paths
