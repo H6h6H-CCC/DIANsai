@@ -21,6 +21,8 @@
 #include "adc.h"
 #include "dma.h"
 #include "spi.h"
+#include "stm32f4xx_hal.h"
+#include "stm32f4xx_hal_tim.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -79,6 +81,7 @@ uint8_t count1;
 uint8_t count2;
 uint8_t rxBuffer1[256]= {0};
 uint8_t rxBuffer4[256];
+uint8_t txBuffer4[256];
 uint8_t rxBuffer5[256];
 uint8_t rxBuffer2[256];
 volatile uint16_t g_rx2_size = 0U;
@@ -246,9 +249,20 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart == &huart4)
     {
-      if ((Size > 0U) && (rxBuffer4[0] == 0x01U)) {
-        g_uart4_mode_request = rxBuffer4[0];
+      uint16_t tx_size = Size;
+
+      if (tx_size > sizeof(txBuffer4)) {
+        tx_size = sizeof(txBuffer4);
       }
+
+      for (uint16_t i = 0; i < tx_size; i++) {
+        txBuffer4[i] = rxBuffer4[i];
+      }
+
+      if (huart4.gState == HAL_UART_STATE_READY) {
+        HAL_UART_Transmit_DMA(&huart4, txBuffer4, tx_size);
+      }
+
       HAL_UARTEx_ReceiveToIdle_DMA(&huart4, rxBuffer4, sizeof(rxBuffer4));
       __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
     }
@@ -345,6 +359,10 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
     Encoder3_Init();
     Encoder4_Init();
     /* Keep laser disabled here first, so UART4 debug output is not blocked. */
@@ -369,13 +387,45 @@ int main(void)
     //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
     //rxBuffer2[0] = 0x01;
-    Moter_A(500);
+    Moter_A(00);
     Moter_B(500);
+    Moter_C(500);
+    Moter_D(500);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 500);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 500);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 500);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 500);
     //Main_SetState(MAIN_STATE_STOP);
     while (1)
-    {
-// MainMode_t uart_mode = Main_TakeUart4ModeRequest();
-
+    {     
+      HAL_Delay(800);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 000);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 000);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 000);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 000);
+      Moter_A(00);
+      Moter_B(00);
+      Moter_C(000);
+      Moter_D(000);
+      HAL_Delay(800);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 500);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 500);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 500);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 500);
+      Moter_A(500);
+      Moter_B(500);
+      Moter_C(500);
+      Moter_D(500);
+      HAL_Delay(800);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1000);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 1000);
+      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 1000);
+      Moter_A(1000);
+      Moter_B(1000);
+      Moter_C(1000);
+      Moter_D(1000);
+// MainMode_t uart_mode = Main_TakeUart4ModeRequest();  
 //       if (uart_mode != MAIN_MODE_NONE)
 //       {
 //         Main_StartMode(uart_mode);
@@ -389,7 +439,6 @@ int main(void)
 //         Main_TrackRun();
 //       }
 
-      HAL_Delay(10);
       //State_RunCurrent();
       //Main_UpdateOledStatus();
       //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 2500);HAL_Delay(1000);

@@ -4,8 +4,6 @@
 #include "tim.h"
 
 #define PWM_MAX 1000
-#define MOTOR_B_COMP 50
-
 static uint16_t ClampPwmAbs(int16_t pwm)
 {
     uint16_t pwm_abs = (pwm < 0) ? (uint16_t)(-pwm) : (uint16_t)pwm;
@@ -44,22 +42,11 @@ void Moter_A(int16_t pwm)
 
 void Moter_B(int16_t pwm)
 {
-    int16_t pwm_cmd = pwm;
-    uint16_t pwm_abs;
-
-    if (pwm_cmd > MOTOR_B_COMP) {
-        pwm_cmd -= MOTOR_B_COMP;
-    } else if (pwm_cmd < -MOTOR_B_COMP) {
-        pwm_cmd += MOTOR_B_COMP;
-    } else {
-        pwm_cmd = 0;
-    }
-
-    pwm_abs = ClampPwmAbs(pwm_cmd);
+    uint16_t pwm_abs = ClampPwmAbs(pwm);
     if (pwm_abs == 0) {
         HAL_GPIO_WritePin(B1_GPIO_Port, B1_Pin, GPIO_PIN_SET);
         HAL_GPIO_WritePin(B2_GPIO_Port, B2_Pin, GPIO_PIN_SET);
-    } else if (pwm_cmd > 0) {
+    } else if (pwm > 0) {
         HAL_GPIO_WritePin(B1_GPIO_Port, B1_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(B2_GPIO_Port, B2_Pin, GPIO_PIN_SET);
     } else {

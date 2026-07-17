@@ -80,7 +80,7 @@
             "postStartSessionCommands": [
                 "continue"
             ],
-            "showDevDebugOutput": "none"
+            "showDevDebugOutput": "raw"
         }
     ]
 }
