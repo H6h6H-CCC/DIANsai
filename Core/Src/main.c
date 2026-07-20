@@ -38,6 +38,7 @@
 #include "Emm_V5.h"
 #include "gray.h"
 #include "TJC_SCREEN.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -83,6 +84,7 @@ uint8_t rxBuffer4[256];
 uint8_t txBuffer4[256];
 uint8_t rxBuffer5[256];
 uint8_t rxBuffer2[256];
+static uint8_t vision_report_buffer[160];
 volatile uint16_t g_rx2_size = 0U;
 uint8_t shijue[10];
 char displayBuffer[20];
@@ -95,6 +97,7 @@ volatile uint8_t g_roll_flag_pos = 0;
 static volatile MainState_t g_main_state = MAIN_STATE_TRACK;
 static MainMode_t g_main_mode = MAIN_MODE_NONE;
 static volatile uint8_t g_uart4_mode_request = 0U;
+static volatile uint8_t g_vision_report_pending = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -248,20 +251,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart == &huart4)
     {
-      uint16_t tx_size = Size;
-
-      if (tx_size > sizeof(txBuffer4)) {
-        tx_size = sizeof(txBuffer4);
-      }
-
-      for (uint16_t i = 0; i < tx_size; i++) {
-        txBuffer4[i] = rxBuffer4[i];
-      }
-
-      if (huart4.gState == HAL_UART_STATE_READY) {
-        HAL_UART_Transmit_DMA(&huart4, txBuffer4, tx_size);
-      }
-
       HAL_UARTEx_ReceiveToIdle_DMA(&huart4, rxBuffer4, sizeof(rxBuffer4));
       __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
     }
@@ -396,12 +385,22 @@ int main(void)
     __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 500);
     //Main_SetState(MAIN_STATE_STOP);
     while (1)
-    {     
+    {
+      if ((g_vision_report_pending != 0U) &&
+          (huart4.gState == HAL_UART_STATE_READY)) {
+        int report_len = snprintf((char *)vision_report_buffer,
+                                  sizeof(vision_report_buffer),
+                                  "count=%u,class_id=%u,x=%u,y=%u,w=%u,h=%u,score=%.3f,label=%s\r\n",
+                                  g_shijue_count, g_shijue_class_id,
+                                  g_shijue_x, g_shijue_y, g_shijue_w,
+                                  g_shijue_h, (double)g_shijue_score,
+                                  g_shijue_label);
+        if ((report_len > 0) && ((size_t)report_len < sizeof(vision_report_buffer))) {
+          HAL_UART_Transmit_DMA(&huart4, vision_report_buffer, (uint16_t)report_len);
+          g_vision_report_pending = 0U;
+        }
+      }
 
-      TJC_SetT0Number(111);
-      HAL_Delay(1000);
-      TJC_SetT0Number(-123);
-      HAL_Delay(1000);
       // HAL_Delay(800);
       // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 000);
       // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 000);
@@ -548,6 +547,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     {
       count = 0;
       count1++;
+      g_vision_report_pending = 1U;
     }
   }
 }
