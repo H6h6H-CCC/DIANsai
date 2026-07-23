@@ -1,6 +1,7 @@
 #include "encoder.h"
-#include "tim.h"
-#include "usart.h"
+#include "bsp_critical.h"
+#include "bsp_encoder.h"
+#include "bsp_uart.h"
 #include <stdio.h>
 
 #define ENCODER3_DIR (-1)
@@ -17,8 +18,7 @@ static volatile int32_t s_report_delta4 = 0;
 
 void Encoder3_Init(void)
 {
-    HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
-    __HAL_TIM_SET_COUNTER(&htim3, 0);
+    BSP_EncoderInit(BSP_ENCODER_3);
     s_last_cnt = 0;
     s_last_delta = 0;
     s_total = 0;
@@ -27,7 +27,7 @@ void Encoder3_Init(void)
 
 int16_t Encoder3_GetCount(void)
 {
-    return (int16_t)__HAL_TIM_GET_COUNTER(&htim3);
+    return BSP_EncoderRead(BSP_ENCODER_3);
 }
 
 int16_t Encoder3_GetDelta(void)
@@ -46,7 +46,7 @@ int32_t Encoder3_GetTotal(void)
 
 void Encoder3_Reset(void)
 {
-    __HAL_TIM_SET_COUNTER(&htim3, 0);
+    BSP_EncoderReset(BSP_ENCODER_3);
     s_last_cnt = 0;
     s_last_delta = 0;
     s_total = 0;
@@ -69,7 +69,7 @@ void Encoder3_ReportUart4(uint8_t count1)
     static char tx_buf[64];
     int len;
 
-    if (huart4.gState != HAL_UART_STATE_READY) {
+    if (!BSP_UartTxReady(BSP_UART_4)) {
         return;
     }
 
@@ -78,15 +78,16 @@ void Encoder3_ReportUart4(uint8_t count1)
                    (long)s_report_delta,
                    (unsigned int)count1);
 
-    if (HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)len) == HAL_OK) {
+    if (BSP_UartSendDma(BSP_UART_4,
+                        (uint8_t *)tx_buf,
+                        (uint16_t)len) == BSP_STATUS_OK) {
         s_report_delta = 0;
     }
 }
 
 void Encoder4_Init(void)
 {
-    HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
-    __HAL_TIM_SET_COUNTER(&htim4, 0);
+    BSP_EncoderInit(BSP_ENCODER_4);
     s_last_cnt4 = 0;
     s_last_delta4 = 0;
     s_total4 = 0;
@@ -95,7 +96,7 @@ void Encoder4_Init(void)
 
 int16_t Encoder4_GetCount(void)
 {
-    return (int16_t)__HAL_TIM_GET_COUNTER(&htim4);
+    return BSP_EncoderRead(BSP_ENCODER_4);
 }
 
 int16_t Encoder4_GetDelta(void)
@@ -114,7 +115,7 @@ int32_t Encoder4_GetTotal(void)
 
 void Encoder4_Reset(void)
 {
-    __HAL_TIM_SET_COUNTER(&htim4, 0);
+    BSP_EncoderReset(BSP_ENCODER_4);
     s_last_cnt4 = 0;
     s_last_delta4 = 0;
     s_total4 = 0;
@@ -137,7 +138,7 @@ void Encoder_ReportUart4(uint8_t count1)
     static char tx_buf[96];
     int len;
 
-    if (huart4.gState != HAL_UART_STATE_READY) {
+    if (!BSP_UartTxReady(BSP_UART_4)) {
         return;
     }
 
@@ -147,7 +148,9 @@ void Encoder_ReportUart4(uint8_t count1)
                    (long)s_report_delta4,
                    (unsigned int)count1);
 
-    if (HAL_UART_Transmit_DMA(&huart4, (uint8_t *)tx_buf, (uint16_t)len) == HAL_OK) {
+    if (BSP_UartSendDma(BSP_UART_4,
+                        (uint8_t *)tx_buf,
+                        (uint16_t)len) == BSP_STATUS_OK) {
         s_report_delta = 0;
         s_report_delta4 = 0;
     }
@@ -155,10 +158,11 @@ void Encoder_ReportUart4(uint8_t count1)
 
 void Encoder_GetAndClearReportDelta(int32_t *tim3_delta, int32_t *tim4_delta)
 {
-    __disable_irq();
+    uint32_t primask = BSP_EnterCritical();
+
     *tim3_delta = s_report_delta;
     *tim4_delta = s_report_delta4;
     s_report_delta = 0;
     s_report_delta4 = 0;
-    __enable_irq();
+    BSP_ExitCritical(primask);
 }

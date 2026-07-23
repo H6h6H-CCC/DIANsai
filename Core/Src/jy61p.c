@@ -2,8 +2,10 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
-#include "usart.h"
 #include "oled.h"
+#include "app_config.h"
+#include "bsp_time.h"
+#include "bsp_uart.h"
 // 协议相关定义
 #define PACKET_HEADER 0x55
 #define PACKET_SIZE 11
@@ -26,30 +28,43 @@ static ParserState_t parserState = STATE_WAIT_HEADER;
 // 传感器解锁
 void JY61P_Unlock(void)
 {
+#if APP_UART4_MODE == APP_UART4_MODE_JY61P
     uint8_t unlockCmd[] = {0xFF, 0xAA, 0x69, 0x88, 0xB5};
-    HAL_UART_Transmit(&huart4, unlockCmd, sizeof(unlockCmd), 100);
-    HAL_Delay(200);
+    (void)BSP_UartSend(BSP_UART_4, unlockCmd, sizeof(unlockCmd), 100U);
+    BSP_DelayMs(200U);
+#endif
 }
 
 // 保存设置
 void JY61P_Save(void)
 {
+#if APP_UART4_MODE == APP_UART4_MODE_JY61P
     uint8_t saveCmd[] = {0xFF, 0xAA, 0x00, 0x00, 0x00};
-    HAL_UART_Transmit(&huart4, saveCmd, sizeof(saveCmd), 100);
+    (void)BSP_UartSend(BSP_UART_4, saveCmd, sizeof(saveCmd), 100U);
+#endif
 }
 
 // 写寄存器
 void JY61P_WriteRegister(uint8_t addr, int16_t data)
 {
+#if APP_UART4_MODE == APP_UART4_MODE_JY61P
     uint8_t cmd[5] = {0xFF, 0xAA, addr, (uint8_t)(data & 0xFF), (uint8_t)(data >> 8)};
-    HAL_UART_Transmit(&huart4, cmd, 5, 100);
+    (void)BSP_UartSend(BSP_UART_4, cmd, 5U, 100U);
+#else
+    (void)addr;
+    (void)data;
+#endif
 }
 
 // 请求特定类型数据
 void JY61P_RequestData(uint8_t type)
 {
+#if APP_UART4_MODE == APP_UART4_MODE_JY61P
     uint8_t cmd[] = {0xFF, 0xAA, 0x27, type, 0x00};
-    HAL_UART_Transmit(&huart4, cmd, sizeof(cmd), 100);
+    (void)BSP_UartSend(BSP_UART_4, cmd, sizeof(cmd), 100U);
+#else
+    (void)type;
+#endif
 }
 
 // 传感器初始化配置
@@ -70,7 +85,7 @@ void JY61P_InitConfig(void)
     // 4. 保存设置
     JY61P_Save();
     
-    HAL_Delay(100);
+    BSP_DelayMs(100U);
     //printf("JY61P Initialization Complete\r\n");
 }
 
@@ -105,7 +120,7 @@ void ProcessReceivedData(uint8_t data)
                 JY61P_ParsePacket(packet);
                 parserState = STATE_WAIT_HEADER;
                 packetIndex = 0;
-                lastPacketTime = HAL_GetTick();
+                lastPacketTime = BSP_TimeMs();
             }
             break;
     }

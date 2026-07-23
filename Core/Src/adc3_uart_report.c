@@ -1,13 +1,12 @@
 #include "adc3_uart_report.h"
 
 #include "adc.h"
+#include "bsp_uart.h"
 #include "dma.h"
-#include "usart.h"
 
 #include <stdio.h>
 
 volatile uint16_t g_adc3_raw[2];
-static uint8_t s_hello_msg[] = "hello\r\n";
 static char s_uart_msg[128];
 static uint8_t s_adc_started;
 
@@ -38,7 +37,10 @@ HAL_StatusTypeDef Adc3UartReport_Start(void)
                            HAL_DMA_GetError(hadc3.DMA_Handle));
         if (len > 0)
         {
-            HAL_UART_Transmit(&huart4, (uint8_t *)err_msg, (uint16_t)len, 100);
+            (void)BSP_UartSend(BSP_UART_4,
+                               (uint8_t *)err_msg,
+                               (uint16_t)len,
+                               100U);
         }
         return status;
     }
@@ -86,7 +88,7 @@ HAL_StatusTypeDef Adc3UartReport_Send(void)
                        ch4_mv / 1000U, ch4_mv % 1000U,
                        ch5_mv / 1000U, ch5_mv % 1000U);
 
-    if (huart4.gState != HAL_UART_STATE_READY)
+    if (!BSP_UartTxReady(BSP_UART_4))
     {
         return HAL_BUSY;
     }
@@ -96,20 +98,9 @@ HAL_StatusTypeDef Adc3UartReport_Send(void)
         return HAL_ERROR;
     }
 
-    if (HAL_UART_Transmit_DMA(&huart4, s_hello_msg, sizeof(s_hello_msg) - 1U) != HAL_OK)
-    {
-        return HAL_BUSY;
-    }
-
-    uint32_t tx_wait = HAL_GetTick();
-    while ((huart4.gState != HAL_UART_STATE_READY) && (HAL_GetTick() - tx_wait < 20U))
-    {
-    }
-
-    if (huart4.gState == HAL_UART_STATE_READY)
-    {
-        return HAL_UART_Transmit_DMA(&huart4, (uint8_t *)s_uart_msg, (uint16_t)len);
-    }
-
-    return HAL_TIMEOUT;
+    return (BSP_UartSendDma(BSP_UART_4,
+                            (uint8_t *)s_uart_msg,
+                            (uint16_t)len) == BSP_STATUS_OK)
+               ? HAL_OK
+               : HAL_BUSY;
 }

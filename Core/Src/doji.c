@@ -1,5 +1,6 @@
 #include "doji.h"
-#include "usart.h"
+#include "app_config.h"
+#include "bsp_uart.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,7 +23,9 @@ static void doji_sendf(const char *fmt, ...)
         n = (int)sizeof(buf) - 1;
     }
 
-    HAL_UART_Transmit(&huart5, (uint8_t *)buf, (uint16_t)n, 100);
+#if APP_UART5_MODE == APP_UART5_MODE_DOJI
+    (void)BSP_UartSend(BSP_UART_5, (uint8_t *)buf, (uint16_t)n, 100U);
+#endif
 }
 
 void Doji_SendRaw(const char *cmd)
@@ -30,7 +33,12 @@ void Doji_SendRaw(const char *cmd)
     if (cmd == NULL) {
         return;
     }
-    HAL_UART_Transmit(&huart5, (uint8_t *)cmd, (uint16_t)strlen(cmd), 100);
+#if APP_UART5_MODE == APP_UART5_MODE_DOJI
+    (void)BSP_UartSend(BSP_UART_5,
+                       (const uint8_t *)cmd,
+                       (uint16_t)strlen(cmd),
+                       100U);
+#endif
 }
 
 void Doji_ReadId(uint8_t id)

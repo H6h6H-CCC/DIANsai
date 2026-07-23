@@ -1,8 +1,8 @@
 #ifndef __EMM_V5_H
 #define __EMM_V5_H
 
-#include "usart.h"
 #include <stdbool.h>
+#include <stdint.h>
 /**********************************************************
 ***	Emm_V5.0步进闭环控制例程
 ***	编写作者：ZHANGDATOU
@@ -36,7 +36,7 @@ typedef enum {
 }SysParams_t;
 
 #define		MMCL_LEN		512
-extern __IO uint16_t MMCL_count, MMCL_cmd[MMCL_LEN];
+extern volatile uint16_t MMCL_count, MMCL_cmd[MMCL_LEN];
 
 /**
 ***********************************************************
@@ -52,8 +52,6 @@ extern __IO uint16_t MMCL_count, MMCL_cmd[MMCL_LEN];
 /**********************************************************
 *** 触发动作命令
 **********************************************************/
-// 在Emm_V5.h中添加声明
-void Emm_V5_Pos_Control_UART4(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, uint32_t clk, bool raF, bool snF);
 // 触发编码器校准
 void Emm_V5_Trig_Encoder_Cal(uint8_t addr);
 // 重启电机（Y42）
@@ -79,8 +77,6 @@ void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, ui
 void Emm_V5_Stop_Now(uint8_t addr, bool snF);
 // 触发多机同步开始运动
 void Emm_V5_Synchronous_motion_UART5(uint8_t addr);
-void Emm_V5_Synchronous_motion_UART4(uint8_t addr);
-void Emm_V5_Multi_Motor_Cmd_UART4(uint8_t addr);
 /**********************************************************
 *** 原点回零命令
 **********************************************************/

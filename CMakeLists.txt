@@ -57,13 +57,25 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Core/Src/atk_ms53l0m.c
     ${CMAKE_SOURCE_DIR}/Core/Src/atk_ms53l0m_uart.c
     ${CMAKE_SOURCE_DIR}/Core/Src/jy61p.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/imu660rc.c
     ${CMAKE_SOURCE_DIR}/Core/Src/shijue.c
     ${CMAKE_SOURCE_DIR}/Core/Src/tjc_screen.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_uart.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_motor.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_btn.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_time.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_servo.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_encoder.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_gray.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_i2c.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_spi.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_input.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_critical.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    ${CMAKE_SOURCE_DIR}/User/BSP/Inc
 )
 
 # Add project symbols (macros)

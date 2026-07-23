@@ -20,6 +20,7 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
+#include "i2c.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -29,15 +30,24 @@
 /* USER CODE BEGIN Includes */
 #include "adc3_uart_report.h"
 #include "oled.h"
+#include "imu660rc.h"
 #include "jy61p.h"
 #include "atk_ms53l0m.h"
 #include "moter.h"
+#include "btn.h"  /* TIM1 switches between moter and BTN in app_config.h. */
 #include "encoder.h"
 #include "shijue.h"
 #include "doji.h"
 #include "Emm_V5.h"
 #include "gray.h"
 #include "TJC_SCREEN.h"
+#include "app_config.h"
+#include "bsp_btn.h"
+#include "bsp_input.h"
+#include "bsp_motor.h"
+#include "bsp_servo.h"
+#include "bsp_time.h"
+#include "bsp_uart.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -64,7 +74,6 @@ typedef enum
 #define TRACK_KP 12
 #define TRACK_STOP_BLACK_COUNT 3U
 #define TRACK_FIRST_STOP_MS 1000U
-#define KEY_PRESSED GPIO_PIN_RESET
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -84,7 +93,8 @@ uint8_t rxBuffer4[256];
 uint8_t txBuffer4[256];
 uint8_t rxBuffer5[256];
 uint8_t rxBuffer2[256];
-static uint8_t vision_report_buffer[160];
+uint8_t rxBuffer3[256];
+static uint8_t vision_report_buffer[256];
 volatile uint16_t g_rx2_size = 0U;
 uint8_t shijue[10];
 char displayBuffer[20];
@@ -126,21 +136,12 @@ void Main_UpdateOledStatus(void)
 
 static uint8_t Main_IsKeyPressed(void)
 {
-    return (HAL_GPIO_ReadPin(KAIGUAN1_GPIO_Port, KAIGUAN1_Pin) == KEY_PRESSED) ||
-           (HAL_GPIO_ReadPin(KAIGUAN2_GPIO_Port, KAIGUAN2_Pin) == KEY_PRESSED) ||
-           (HAL_GPIO_ReadPin(KAIGUAN3_GPIO_Port, KAIGUAN3_Pin) == KEY_PRESSED);
+    return BSP_InputAnyKeyPressed();
 }
 
 static uint8_t Main_ReadBoValue(void)
 {
-    uint8_t value = 0U;
-
-    if (HAL_GPIO_ReadPin(bo1_GPIO_Port, bo1_Pin) == GPIO_PIN_SET) value |= 0x01U;
-    if (HAL_GPIO_ReadPin(bo2_GPIO_Port, bo2_Pin) == GPIO_PIN_SET) value |= 0x02U;
-    if (HAL_GPIO_ReadPin(bo3_GPIO_Port, bo3_Pin) == GPIO_PIN_SET) value |= 0x04U;
-    if (HAL_GPIO_ReadPin(bo4_GPIO_Port, bo4_Pin) == GPIO_PIN_SET) value |= 0x08U;
-
-    return value;
+    return BSP_InputReadDipSwitch();
 }
 
 static MainMode_t Main_TakeUart4ModeRequest(void)
@@ -247,33 +248,188 @@ static void Main_TrackRun(void)
     }
 }
 
+static void Main_SendDebugReport(void)
+{
+    int length = 0;
+    int written = 0;
+
+#if APP_UART4_MODE != APP_UART4_MODE_DEBUG
+    return;
+#endif
+
+    if ((g_vision_report_pending == 0U) ||
+        !BSP_UartTxReady(BSP_UART_4))
+    {
+        return;
+    }
+
+#if APP_REPORT_VISION
+    written = snprintf((char *)&vision_report_buffer[length],
+                       sizeof(vision_report_buffer) - (size_t)length,
+                       "count=%u,class_id=%u,x=%u,y=%u,w=%u,h=%u,score=%.3f,label=%s",
+                       g_shijue_count,
+                       g_shijue_class_id,
+                       g_shijue_x,
+                       g_shijue_y,
+                       g_shijue_w,
+                       g_shijue_h,
+                       (double)g_shijue_score,
+                       g_shijue_label);
+    if ((written < 0) || ((size_t)written >= sizeof(vision_report_buffer) - (size_t)length))
+    {
+        return;
+    }
+    length += written;
+#endif
+
+#if !APP_REPORT_VISION
+    (void)g_shijue_count;
+#endif
+
+#if APP_REPORT_ADC
+    written = snprintf((char *)&vision_report_buffer[length],
+                       sizeof(vision_report_buffer) - (size_t)length,
+                       "%sadc4=%lumV,adc5=%lumV",
+                       (length > 0) ? "," : "",
+                       (unsigned long)Adc3UartReport_GetCh4Mv(),
+                       (unsigned long)Adc3UartReport_GetCh5Mv());
+    if ((written < 0) || ((size_t)written >= sizeof(vision_report_buffer) - (size_t)length))
+    {
+        return;
+    }
+    length += written;
+#endif
+
+#if APP_REPORT_ENCODER
+    written = snprintf((char *)&vision_report_buffer[length],
+                       sizeof(vision_report_buffer) - (size_t)length,
+                       "%senc3=%ld,enc4=%ld",
+                       (length > 0) ? "," : "",
+                       (long)Encoder3_GetTotal(),
+                       (long)Encoder4_GetTotal());
+    if ((written < 0) || ((size_t)written >= sizeof(vision_report_buffer) - (size_t)length))
+    {
+        return;
+    }
+    length += written;
+#endif
+
+    (void)written;
+
+    if ((length > 0) && ((size_t)(length + 2) < sizeof(vision_report_buffer)))
+    {
+        vision_report_buffer[length++] = '\r';
+        vision_report_buffer[length++] = '\n';
+
+        if (BSP_UartSendDma(BSP_UART_4,
+                            vision_report_buffer,
+                            (uint16_t)length) == BSP_STATUS_OK)
+        {
+            g_vision_report_pending = 0U;
+        }
+    }
+}
+
+static void Main_AppInit(void)
+{
+    /* 启动周期定时器和各串口的空闲中断 DMA 接收。 */
+    BSP_TimeStartPeriodic();
+    (void)BSP_UartStartReceiveToIdleDma(BSP_UART_1, rxBuffer1, sizeof(rxBuffer1));
+    (void)BSP_UartStartReceiveToIdleDma(BSP_UART_2, rxBuffer2, sizeof(rxBuffer2));
+    (void)BSP_UartStartReceiveToIdleDma(BSP_UART_3, rxBuffer3, sizeof(rxBuffer3));
+    (void)BSP_UartStartReceiveToIdleDma(BSP_UART_4, rxBuffer4, sizeof(rxBuffer4));
+    (void)BSP_UartStartReceiveToIdleDma(BSP_UART_5, rxBuffer5, sizeof(rxBuffer5));
+
+    /* 初始化当前固件配置需要使用的设备。 */
+    BSP_ServoInit();
+    Encoder3_Init();
+    Encoder4_Init();
+
+    /* 默认不启用激光测距，避免占用当前调试输出。 */
+    atk_ready = 0U;
+    atk_last_err = ATK_MS53L0M_ERROR;
+
+#if APP_UART4_MODE == APP_UART4_MODE_JY61P
+    JY61P_InitConfig();
+#endif
+
+#if APP_TIM1_MODE == APP_TIM1_MODE_MOTER
+    Moter_Init();
+#elif APP_TIM1_MODE == APP_TIM1_MODE_BTN
+    BTN_Init();
+#endif
+
+#if APP_REPORT_ADC
+    Adc3UartReport_Init();
+    (void)Adc3UartReport_Start();
+#endif
+
+    OLED_Init();
+
+    /* IMU660RC 使用 app_config.h 选定的总线；失败时不阻塞其他功能。 */
+    (void)IMU660RC_Init();
+
+
+    /* 设置电机和舵机的上电初始输出。 */
+#if APP_TIM1_MODE == APP_TIM1_MODE_MOTER
+    Moter_A(500);
+    Moter_B(500);
+    Moter_C(500);
+    Moter_D(500);
+#endif
+    BSP_ServoSetPulse(BSP_SERVO_1, 500U);
+    BSP_ServoSetPulse(BSP_SERVO_2, 500U);
+    BSP_ServoSetPulse(BSP_SERVO_3, 500U);
+    BSP_ServoSetPulse(BSP_SERVO_4, 500U);
+}
+
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-    if (huart == &huart4)
+    if (BSP_UartMatches(BSP_UART_4, huart))
     {
-      HAL_UARTEx_ReceiveToIdle_DMA(&huart4, rxBuffer4, sizeof(rxBuffer4));
-      __HAL_DMA_DISABLE_IT(&hdma_uart4_rx, DMA_IT_HT);
+#if APP_UART4_MODE == APP_UART4_MODE_JY61P
+      uint16_t i;
+      for (i = 0U; i < Size; i++)
+      {
+        ProcessReceivedData(rxBuffer4[i]);
+      }
+#else
+      (void)Size;
+#endif
+      (void)BSP_UartStartReceiveToIdleDma(BSP_UART_4,
+                                          rxBuffer4,
+                                          sizeof(rxBuffer4));
     }
-    else if (huart == &huart1)
+    else if (BSP_UartMatches(BSP_UART_1, huart))
     {
       Shijue_ProcessRxBuffer(rxBuffer1, Size);
-
-      HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rxBuffer1, sizeof(rxBuffer1));
-      __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+      (void)BSP_UartStartReceiveToIdleDma(BSP_UART_1,
+                                          rxBuffer1,
+                                          sizeof(rxBuffer1));
     }
-    else if (huart == &huart2)
+    else if (BSP_UartMatches(BSP_UART_2, huart))
     {
         g_rx2_size = Size;
+#if APP_USART2_MODE == APP_USART2_MODE_ATK_TOF
         atk_ms53l0m_uart_rx_event(rxBuffer2, Size);
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rxBuffer2, sizeof(rxBuffer2));
-        __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+#endif
+        (void)BSP_UartStartReceiveToIdleDma(BSP_UART_2,
+                                            rxBuffer2,
+                                            sizeof(rxBuffer2));
     }
-    else if (huart == &huart5)
+    else if (BSP_UartMatches(BSP_UART_3, huart))
     {
-    
-        
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart5, rxBuffer5, sizeof(rxBuffer5));
-        __HAL_DMA_DISABLE_IT(&hdma_uart5_rx, DMA_IT_HT);
+        TJC_OnRx(rxBuffer3, Size);
+        (void)BSP_UartStartReceiveToIdleDma(BSP_UART_3,
+                                            rxBuffer3,
+                                            sizeof(rxBuffer3));
+    }
+    else if (BSP_UartMatches(BSP_UART_5, huart))
+    {
+        (void)Size;
+        (void)BSP_UartStartReceiveToIdleDma(BSP_UART_5,
+                                            rxBuffer5,
+                                            sizeof(rxBuffer5));
     }
 }
 
@@ -326,47 +482,14 @@ int main(void)
   MX_TIM13_Init();
   MX_TIM14_Init();
   MX_TIM3_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-	
-    // 鍚姩UART DMA鎺ユ�?
-    HAL_TIM_Base_Start_IT(&htim9);
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart1,rxBuffer1,sizeof(rxBuffer1));
-		__HAL_DMA_DISABLE_IT(&hdma_usart1_rx,DMA_IT_HT);
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart4,rxBuffer4,sizeof(rxBuffer4));
-	__HAL_DMA_DISABLE_IT(&hdma_uart4_rx,DMA_IT_HT);
-	HAL_UARTEx_ReceiveToIdle_DMA(&huart5,rxBuffer5,sizeof(rxBuffer5));
-	__HAL_DMA_DISABLE_IT(&hdma_uart5_rx,DMA_IT_HT);
-	HAL_UARTEx_ReceiveToIdle_DMA(&huart2,rxBuffer2,sizeof(rxBuffer2));
-		__HAL_DMA_DISABLE_IT(&hdma_usart2_rx,DMA_IT_HT);
-  // atk_last_err = atk_ms53l0m_init(huart2.Init.BaudRate, &atk_id);
-  // if (atk_last_err == ATK_MS53L0M_EOK)
-  // {
-  //   atk_ready = 1;
-  // }
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-    Encoder3_Init();
-    Encoder4_Init();
-    /* Keep laser disabled here first, so UART4 debug output is not blocked. */
-    atk_ready = 0;
-    atk_last_err = ATK_MS53L0M_ERROR;
-    // 浼犳劅鍣ㄥ垵濮嬪寲閰嶇疆
-    //JY61P_InitConfig();
-	Moter_Init();
-  //Adc3UartReport_Init();
-  //Adc3UartReport_Start();
+    Main_AppInit();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   
-  OLED_Init();
   // Doji_MovePos(001,1500,0010);
   // HAL_Delay(30);
   // Doji_MovePos(001,1500,0010);
@@ -375,31 +498,21 @@ int main(void)
     //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
     //rxBuffer2[0] = 0x01;
-    Moter_A(00);
-    Moter_B(500);
-    Moter_C(500);
-    Moter_D(500);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 500);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 500);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 500);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 500);
     //Main_SetState(MAIN_STATE_STOP);
     while (1)
     {
-      if ((g_vision_report_pending != 0U) &&
-          (huart4.gState == HAL_UART_STATE_READY)) {
-        int report_len = snprintf((char *)vision_report_buffer,
-                                  sizeof(vision_report_buffer),
-                                  "count=%u,class_id=%u,x=%u,y=%u,w=%u,h=%u,score=%.3f,label=%s\r\n",
-                                  g_shijue_count, g_shijue_class_id,
-                                  g_shijue_x, g_shijue_y, g_shijue_w,
-                                  g_shijue_h, (double)g_shijue_score,
-                                  g_shijue_label);
-        if ((report_len > 0) && ((size_t)report_len < sizeof(vision_report_buffer))) {
-          HAL_UART_Transmit_DMA(&huart4, vision_report_buffer, (uint16_t)report_len);
-          g_vision_report_pending = 0U;
-        }
-      }
+      //Main_SendDebugReport();
+      Moter_A(-500);
+      HAL_Delay(1000);
+      Moter_A(0);
+      HAL_Delay(1000);
+      Moter_A(500);
+      HAL_Delay(1000);
+      Moter_A(1000);
+      HAL_Delay(1000);
+      
+      
+
 
       // HAL_Delay(800);
       // __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 000);

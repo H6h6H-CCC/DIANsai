@@ -95,6 +95,8 @@ void Error_Handler(void);
 #define bo1_GPIO_Port GPIOG
 #define HUI7_Pin GPIO_PIN_7
 #define HUI7_GPIO_Port GPIOE
+#define spics_Pin GPIO_PIN_8
+#define spics_GPIO_Port GPIOE
 #define D2_Pin GPIO_PIN_14
 #define D2_GPIO_Port GPIOB
 #define D1_Pin GPIO_PIN_15

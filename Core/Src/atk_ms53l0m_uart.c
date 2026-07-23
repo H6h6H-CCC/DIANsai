@@ -1,5 +1,6 @@
-﻿#include "atk_ms53l0m_uart.h"
-#include "usart.h"
+#include "atk_ms53l0m_uart.h"
+#include "app_config.h"
+#include "bsp_uart.h"
 #include <string.h>
 
 static struct
@@ -14,7 +15,12 @@ static struct
 
 void atk_ms53l0m_uart_send(uint8_t *dat, uint8_t len)
 {
-    HAL_UART_Transmit(&huart2, dat, len, HAL_MAX_DELAY);
+#if APP_USART2_MODE == APP_USART2_MODE_ATK_TOF
+    (void)BSP_UartSend(BSP_UART_2, dat, len, 0xFFFFFFFFU);
+#else
+    (void)dat;
+    (void)len;
+#endif
 }
 
 void atk_ms53l0m_uart_rx_restart(void)

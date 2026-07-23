@@ -1,79 +1,27 @@
 #include "OLED_Font.h"
-#include "gpio.h"
+#include "bsp_i2c.h"
 
-/*引脚配置*/
-#define OLED_W_SCL(x)	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_6,x)
-#define OLED_W_SDA(x)	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_7,x)
+#define OLED_I2C_ADDRESS       0x3CU
+#define OLED_I2C_COMMAND       0x00U
+#define OLED_I2C_DATA          0x40U
+#define OLED_I2C_TIMEOUT_MS    100U
 
-void my_delay_us(uint32_t us)
+static void OLED_WriteCommands(const uint8_t *commands, uint16_t length)
 {
-us *= 2; // 鏍″噯鍥犲瓙锛岄渶瀹炴祴璋冩暣
-while (us--)
-{
-__NOP(); __NOP(); __NOP(); __NOP(); // 4涓狽OP锛岄槻姝㈣浼樺寲
-}
-}
-
-/*引脚初始化*/
-void OLED_I2C_Init(void)
-{
-	MX_GPIO_Init();
-	OLED_W_SCL(1);
-	my_delay_us(5);
-	OLED_W_SDA(1);
-	my_delay_us(5);
+    (void)BSP_I2c1Write(OLED_I2C_ADDRESS,
+                        OLED_I2C_COMMAND,
+                        commands,
+                        length,
+                        OLED_I2C_TIMEOUT_MS);
 }
 
-/**
-  * @brief  I2C开始
-  * @param  无
-  * @retval 无
-  */
-void OLED_I2C_Start(void)
+static void OLED_WriteDataBuffer(const uint8_t *data, uint16_t length)
 {
-	OLED_W_SDA(1);
-	OLED_W_SCL(1);
-	my_delay_us(5);
-	OLED_W_SDA(0);
-	my_delay_us(5);
-	OLED_W_SCL(0);
-}
-
-/**
-  * @brief  I2C停止
-  * @param  无
-  * @retval 无
-  */
-void OLED_I2C_Stop(void)
-{
-	OLED_W_SDA(0);
-	OLED_W_SCL(1);
-	my_delay_us(5);
-	OLED_W_SDA(1);
-	my_delay_us(5);
-}
-
-/**
-  * @brief  I2C发送一个字节
-  * @param  Byte 要发送的一个字节
-  * @retval 无
-  */
-void OLED_I2C_SendByte(uint8_t Byte)
-{
-	uint8_t i;
-	for (i = 0; i < 8; i++)
-	{
-		OLED_W_SDA(!!(Byte & (0x80 >> i)));
-		my_delay_us(5);
-		OLED_W_SCL(1);
-		my_delay_us(5);
-		OLED_W_SCL(0);
-		my_delay_us(5);
-	}
-	OLED_W_SCL(1);
-	my_delay_us(5);	//额外的一个时钟，不处理应答信号
-	OLED_W_SCL(0);
-	my_delay_us(5);
+    (void)BSP_I2c1Write(OLED_I2C_ADDRESS,
+                        OLED_I2C_DATA,
+                        data,
+                        length,
+                        OLED_I2C_TIMEOUT_MS);
 }
 
 /**
@@ -83,11 +31,7 @@ void OLED_I2C_SendByte(uint8_t Byte)
   */
 void OLED_WriteCommand(uint8_t Command)
 {
-	OLED_I2C_Start();
-	OLED_I2C_SendByte(0x78);		//从机地址
-	OLED_I2C_SendByte(0x00);		//写命令
-	OLED_I2C_SendByte(Command); 
-	OLED_I2C_Stop();
+	OLED_WriteCommands(&Command, 1U);
 }
 
 /**
@@ -97,11 +41,7 @@ void OLED_WriteCommand(uint8_t Command)
   */
 void OLED_WriteData(uint8_t Data)
 {
-	OLED_I2C_Start();
-	OLED_I2C_SendByte(0x78);		//从机地址
-	OLED_I2C_SendByte(0x40);		//写数据
-	OLED_I2C_SendByte(Data);
-	OLED_I2C_Stop();
+	OLED_WriteDataBuffer(&Data, 1U);
 }
 
 /**
@@ -112,9 +52,12 @@ void OLED_WriteData(uint8_t Data)
   */
 void OLED_SetCursor(uint8_t Y, uint8_t X)
 {
-	OLED_WriteCommand(0xB0 | Y);					//设置Y位置
-	OLED_WriteCommand(0x10 | ((X & 0xF0) >> 4));	//设置X位置高4位
-	OLED_WriteCommand(0x00 | (X & 0x0F));			//设置X位置低4位
+	uint8_t commands[3];
+
+	commands[0] = 0xB0U | Y;					//设置Y位置
+	commands[1] = 0x10U | ((X & 0xF0U) >> 4U);	//设置X位置高4位
+	commands[2] = X & 0x0FU;					//设置X位置低4位
+	OLED_WriteCommands(commands, sizeof(commands));
 }
 
 /**
@@ -124,14 +67,13 @@ void OLED_SetCursor(uint8_t Y, uint8_t X)
   */
 void OLED_Clear(void)
 {  
-	uint8_t i, j;
+	uint8_t j;
+	static const uint8_t clear_data[128] = {0};
+
 	for (j = 0; j < 8; j++)
 	{
 		OLED_SetCursor(j, 0);
-		for(i = 0; i < 128; i++)
-		{
-			OLED_WriteData(0x00);
-		}
+		OLED_WriteDataBuffer(clear_data, sizeof(clear_data));
 	}
 }
 
@@ -144,17 +86,23 @@ void OLED_Clear(void)
   */
 void OLED_ShowChar(uint8_t Line, uint8_t Column, char Char)
 {      	
+	uint8_t font_data[8];
 	uint8_t i;
+	uint8_t index = (uint8_t)(Char - ' ');
+
 	OLED_SetCursor((Line - 1) * 2, (Column - 1) * 8);		//设置光标位置在上半部分
 	for (i = 0; i < 8; i++)
 	{
-		OLED_WriteData(OLED_F8x16[Char - ' '][i]);			//显示上半部分内容
+		font_data[i] = (uint8_t)OLED_F8x16[index][i];
 	}
+	OLED_WriteDataBuffer(font_data, sizeof(font_data));		//显示上半部分内容
+
 	OLED_SetCursor((Line - 1) * 2 + 1, (Column - 1) * 8);	//设置光标位置在下半部分
 	for (i = 0; i < 8; i++)
 	{
-		OLED_WriteData(OLED_F8x16[Char - ' '][i + 8]);		//显示下半部分内容
+		font_data[i] = (uint8_t)OLED_F8x16[index][i + 8U];
 	}
+	OLED_WriteDataBuffer(font_data, sizeof(font_data));		//显示下半部分内容
 }
 
 /**
@@ -287,8 +235,6 @@ void OLED_Init(void)
 	{
 		for (j = 0; j < 1000; j++);
 	}
-	
-	OLED_I2C_Init();			//端口初始化
 	
 	OLED_WriteCommand(0xAE);	//关闭显示
 	

@@ -1,5 +1,6 @@
 #include "shijue.h"
-#include "stm32f4xx_hal.h"
+#include "bsp_time.h"
+#include "bsp_uart.h"
 #include <string.h>
 
 volatile uint16_t g_shijue_count = 0;
@@ -53,7 +54,7 @@ static void shijue_update_speed(uint16_t x, uint16_t y)
     static uint16_t last_x = 0U;
     static uint16_t last_y = 0U;
     static uint32_t last_tick = 0U;
-    uint32_t now_tick = HAL_GetTick();
+    uint32_t now_tick = BSP_TimeMs();
 
     if (!has_last) {
         last_x = x;
@@ -107,4 +108,9 @@ void Shijue_ProcessRxBuffer(const uint8_t *buf, uint16_t len)
             shijue_update_speed(g_shijue_x, g_shijue_y);
         }
     }
+}
+
+uint8_t Shijue_Send(const uint8_t *data, uint16_t len)
+{
+    return BSP_UartSendDma(BSP_UART_1, data, len) == BSP_STATUS_OK;
 }

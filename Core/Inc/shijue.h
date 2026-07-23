@@ -31,6 +31,7 @@ extern volatile uint8_t g_shijue_error_flag;
 
 uint8_t Shijue_ParseFrame8(const uint8_t *buf, uint16_t len, uint16_t *x, uint16_t *y);
 void Shijue_ProcessRxBuffer(const uint8_t *buf, uint16_t len);
+uint8_t Shijue_Send(const uint8_t *data, uint16_t len);
 
 #ifdef __cplusplus
 }
