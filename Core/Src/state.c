@@ -1,1054 +1,607 @@
 #include "state.h"
-#include "main.h"
-#include "tim.h"
+
+#include "OLED.h"
+#include "bsp_key.h"
+#include "bsp_time.h"
+#include "bsp_uart.h"
+#include "gray.h"
+#include "moter.h"
 #include "shijue.h"
-#include "oled.h"
 
-#define HOLD_RADIUS_UNIT    12.0f
-#define STATE5_HOLD_MS      3000U
-#define STATE6_HOLD_MS      4000U
-#define STATE8_HOLD_MS      1000U
-#define ROLL_VEL_DT_S       0.033f
-#define ROLL_POS_DT_S       0.066f
-#define STATE_TARGET9_INSET 8.0f
-#define STATE_TARGET137_INSET 6.0f
-#define STATE_PRE_TARGET_RADIUS 16.0f
-#define STATE_PRE_TARGET_HOLD_MS 1000U
-#define STATE_PRE_TARGET_1_X 72.912f
-#define STATE_PRE_TARGET_1_Y 72.912f
-#define STATE_PRE_TARGET_3_X 245.461f
-#define STATE_PRE_TARGET_3_Y 73.282f
-#define STATE_PRE_TARGET_7_X 73.282f
-#define STATE_PRE_TARGET_7_Y 245.461f
-#define STATE_PRE_TARGET_9_X 239.088f
-#define STATE_PRE_TARGET_9_Y 239.088f
-float g_roll_target_x = 0.0f;
-float g_roll_target_y = 0.0f;
+#include <stdio.h>
+#include <string.h>
 
-static void RollCtrl_UpdatePos(float measure_x, float measure_y, float dt_s)
+#define H2_BASE_PWM           350
+#define H2_TRACK_KP           8
+#define H2_REVERSE_LEFT_PWM   850
+#define H2_REVERSE_RIGHT_PWM  1000
+#define H2_REVERSE_MS         250U
+#define H2_FIRST_STRAIGHT_MS  100U
+#define H2_MARKER_BLACK_COUNT 4U
+
+typedef enum
 {
-    (void)measure_x;
-    (void)measure_y;
-    (void)dt_s;
-}
+    STATE_MODE_NONE = 0,
+    STATE_MODE_H2_CAR_LOOP = 2,
+    STATE_MODE_H3_BALL_MOVE = 3,
+    STATE_MODE_H4_AB_BALANCE = 4,
+    STATE_MODE_H5_LOOP_CENTER = 5,
+    STATE_MODE_H6_LOOP_TARGET = 6
+} StateMode_t;
 
-static void RollCtrl_UpdateVel(float measure_vx, float measure_vy, float dt_s)
+typedef enum
 {
-    (void)measure_vx;
-    (void)measure_vy;
-    (void)dt_s;
-}
+    STATE_PAGE_SELECT = 0,
+    STATE_PAGE_TARGET_SET,
+    STATE_PAGE_READY,
+    STATE_PAGE_RUNNING,
+    STATE_PAGE_FINISHED,
+    STATE_PAGE_STOPPED,
+    STATE_PAGE_TIMEOUT
+} StatePage_t;
 
-static void RollCtrl_UpdateAngleOutput_duoji(float measure_angle_x, float measure_angle_y, float dt_s)
-{
-    (void)measure_angle_x;
-    (void)measure_angle_y;
-    (void)dt_s;
-}
-extern uint8_t rxBuffer2[256];
-extern volatile uint16_t g_rx2_size;
-extern volatile uint8_t g_roll_flag_vel;
-extern volatile uint8_t g_roll_flag_pos;
-uint8_t place[20] = {0};
-uint8_t place_len = 0U;
-uint32_t g_state9_elapsed_ms = 0U;
-static uint8_t g_pre_target_valid = 0U;
-static uint8_t g_pre_target_point = 0U;
-static uint8_t g_pre_target_hold_started = 0U;
-static uint32_t g_pre_target_hold_tick = 0U;
-static uint8_t g_place_prev[20] = {0xFFU};
-static uint8_t g_place_prev_len = 0xFFU;
-uint8_t g_state = 0x00;
-static void State_RunPidUpdate(void);
-static uint8_t State_TryGetAsciiTargetPoint(uint8_t *point);
-static uint8_t State_IsPlaceChanged(void);
-static void State_SavePlaceSnapshot(void);
-static void State_PreTargetReset(void);
-static void State_SetTargetDirect(uint8_t target_point);
-static uint8_t State_GetDirectTargetCoord(uint8_t target_point, float *x, float *y);
-static uint8_t State_IsPreTargetPoint(uint8_t point);
-static uint8_t State_GetPreTargetCoord(uint8_t point, float *x, float *y);
-static uint8_t State_GetCurrentCornerPoint(uint8_t *point);
+static StateMode_t current_mode;
+static StatePage_t current_page;
+static uint8_t selected_item;
+static int16_t target_tenth_cm;
+static uint32_t start_time_ms;
+static uint32_t stopped_elapsed_ms;
 
-static uint8_t State_Normalize(uint8_t state)
+static uint8_t h2_marker_count;
+static uint8_t h2_marker_active;
+static uint8_t h2_straight_active;
+static uint8_t h2_reverse_active;
+static uint8_t h2_stop_locked;
+static uint32_t h2_straight_start_ms;
+static uint32_t h2_reverse_start_ms;
+
+static uint8_t display_dirty;
+static StatePage_t last_display_page;
+static uint32_t last_display_half_second;
+static char display_cache[4][16];
+
+static uint8_t vision_debug_buffer[128];
+static uint32_t vision_debug_time_ms;
+
+static const char *State_GetModeName(StateMode_t mode)
 {
-    if ((state >= 0x01U) && (state <= 0x0BU))
+    switch (mode)
     {
-        return state;
+    case STATE_MODE_H2_CAR_LOOP:    return "H2 CAR LOOP";
+    case STATE_MODE_H3_BALL_MOVE:   return "H3 BALL MOVE";
+    case STATE_MODE_H4_AB_BALANCE:  return "H4 AB BALANCE";
+    case STATE_MODE_H5_LOOP_CENTER: return "H5 LOOP CENTER";
+    case STATE_MODE_H6_LOOP_TARGET: return "H6 LOOP TARGET";
+    default:                        return "SELECT H ITEM";
     }
-    return 0x00U;
 }
 
-static uint8_t State_DecodePlaceDigit(uint8_t c)
+static uint32_t State_GetElapsedHalfSeconds(uint32_t now_ms)
 {
-    if ((c >= 0x31U) && (c <= 0x39U))
+    uint32_t elapsed_ms = stopped_elapsed_ms;
+
+    if (current_page == STATE_PAGE_RUNNING)
     {
-        return (uint8_t)(c - 0x30U);
+        elapsed_ms = now_ms - start_time_ms;
     }
-    return 0U;
+    return elapsed_ms / 500U;
 }
 
-static uint8_t State_IsPlaceFrame(void)
+static void State_ShowLine(uint8_t line, const char *text)
 {
-    uint8_t i;
-    uint8_t n;
+    char output[17];
+    size_t length = strlen(text);
+    uint8_t column;
 
-    if (g_rx2_size == 0U)
+    if (length > 16U) length = 16U;
+    memset(output, ' ', 16U);
+    memcpy(output, text, length);
+    output[16] = '\0';
+
+    for (column = 0U; column < 16U; column++)
     {
-        return 0U;
-    }
-    n = (g_rx2_size > 20U) ? 20U : (uint8_t)g_rx2_size;
-    for (i = 0U; i < n; i++)
-    {
-        if ((rxBuffer2[i] < 0x31U) || (rxBuffer2[i] > 0x39U))
+        if (display_cache[line - 1U][column] != output[column])
         {
+            OLED_ShowChar(line, column + 1U, output[column]);
+            display_cache[line - 1U][column] = output[column];
+        }
+    }
+}
+
+static void State_FormatTime(char *output, size_t size, uint32_t half_seconds)
+{
+    (void)snprintf(output,
+                   size,
+                   "TIME:%03lu.%cS",
+                   (unsigned long)(half_seconds / 2U),
+                   ((half_seconds & 1U) != 0U) ? '5' : '0');
+}
+
+static void State_FormatTarget(char *output, size_t size)
+{
+    uint16_t magnitude = (target_tenth_cm < 0)
+                       ? (uint16_t)(-target_tenth_cm)
+                       : (uint16_t)target_tenth_cm;
+
+    (void)snprintf(output,
+                   size,
+                   "TARGET:%c%02u.%uCM",
+                   (target_tenth_cm < 0) ? '-' : '+',
+                   magnitude / 10U,
+                   magnitude % 10U);
+}
+
+static void State_RenderSelect(void)
+{
+    uint8_t first_item = selected_item - 1U;
+    uint8_t row;
+    char line[17];
+
+    if (first_item < 2U) first_item = 2U;
+    if (first_item > 4U) first_item = 4U;
+
+    State_ShowLine(1U, "SELECT H ITEM");
+    for (row = 0U; row < 3U; row++)
+    {
+        uint8_t item = first_item + row;
+        (void)snprintf(line,
+                       sizeof(line),
+                       "%c%s",
+                       (item == selected_item) ? '>' : ' ',
+                       State_GetModeName((StateMode_t)item));
+        State_ShowLine(row + 2U, line);
+    }
+}
+
+static void State_RenderReady(void)
+{
+    char target[17];
+
+    State_ShowLine(1U, State_GetModeName(current_mode));
+    if (current_mode == STATE_MODE_H3_BALL_MOVE)
+    {
+        State_ShowLine(2U, "0>+5>-5CM");
+    }
+    else if ((current_mode == STATE_MODE_H4_AB_BALANCE) ||
+             (current_mode == STATE_MODE_H5_LOOP_CENTER))
+    {
+        State_ShowLine(2U, "TARGET:CENTER");
+    }
+    else if (current_mode == STATE_MODE_H6_LOOP_TARGET)
+    {
+        State_FormatTarget(target, sizeof(target));
+        State_ShowLine(2U, target);
+    }
+    else
+    {
+        State_ShowLine(2U, "STATE:READY");
+    }
+    State_ShowLine(3U, "K3 START");
+    State_ShowLine(4U,
+                   (current_mode == STATE_MODE_H6_LOOP_TARGET)
+                   ? "K4 BACK" : "K4 MENU");
+}
+
+static void State_RenderStatus(uint32_t now_ms)
+{
+    char time_text[17];
+    const char *state_text;
+
+    switch (current_page)
+    {
+    case STATE_PAGE_RUNNING:  state_text = "STATE:RUNNING";  break;
+    case STATE_PAGE_FINISHED: state_text = "STATE:FINISHED"; break;
+    case STATE_PAGE_TIMEOUT:  state_text = "STATE:TIMEOUT";  break;
+    default:                  state_text = "STATE:STOPPED";  break;
+    }
+
+    State_FormatTime(time_text,
+                     sizeof(time_text),
+                     State_GetElapsedHalfSeconds(now_ms));
+    State_ShowLine(1U, State_GetModeName(current_mode));
+    State_ShowLine(2U, state_text);
+    State_ShowLine(3U, time_text);
+    State_ShowLine(4U,
+                   (current_page == STATE_PAGE_RUNNING)
+                   ? "K4 STOP" : "K4 BACK");
+}
+
+static void State_Render(uint32_t now_ms)
+{
+    switch (current_page)
+    {
+    case STATE_PAGE_SELECT:
+        State_RenderSelect();
+        break;
+
+    case STATE_PAGE_TARGET_SET:
+    {
+        char target[17];
+        State_FormatTarget(target, sizeof(target));
+        State_ShowLine(1U, "H6 LOOP TARGET");
+        State_ShowLine(2U, target);
+        State_ShowLine(3U, "K1+ K2-");
+        State_ShowLine(4U, "K3 OK K4 MENU");
+        break;
+    }
+
+    case STATE_PAGE_READY:
+        State_RenderReady();
+        break;
+
+    default:
+        State_RenderStatus(now_ms);
+        break;
+    }
+    display_dirty = 0U;
+}
+
+static void State_H2Reset(void)
+{
+    h2_marker_count = 0U;
+    h2_marker_active = 0U;
+    h2_straight_active = 0U;
+    h2_reverse_active = 0U;
+    h2_stop_locked = 0U;
+    h2_straight_start_ms = 0U;
+    h2_reverse_start_ms = 0U;
+}
+
+static void State_H2Brake(void)
+{
+    Moter_A_Brake();
+    Moter_B_Brake();
+}
+
+static uint8_t State_H2Run(uint32_t now_ms)
+{
+    uint8_t gray = Gray_Read();
+    uint8_t black_count = 0U;
+    int16_t turn = Gray_GetError() * H2_TRACK_KP;
+
+    for (uint8_t i = 0U; i < 8U; i++)
+    {
+        if ((gray & (uint8_t)(1U << i)) == 0U)
+        {
+            black_count++;
+        }
+    }
+
+    if (h2_stop_locked != 0U)
+    {
+        State_H2Brake();
+        return 1U;
+    }
+
+    if (h2_reverse_active != 0U)
+    {
+        if ((uint32_t)(now_ms - h2_reverse_start_ms) < H2_REVERSE_MS)
+        {
+            Moter_A(H2_REVERSE_RIGHT_PWM);
+            Moter_B(H2_REVERSE_LEFT_PWM);
+            return 0U;
+        }
+
+        h2_reverse_active = 0U;
+        h2_stop_locked = 1U;
+        State_H2Brake();
+        return 1U;
+    }
+
+    if ((black_count >= H2_MARKER_BLACK_COUNT) &&
+        (h2_marker_active == 0U))
+    {
+        h2_marker_active = 1U;
+        h2_marker_count++;
+
+        if (h2_marker_count == 1U)
+        {
+            h2_straight_active = 1U;
+            h2_straight_start_ms = now_ms;
+        }
+        else
+        {
+            h2_reverse_active = 1U;
+            h2_reverse_start_ms = now_ms;
+            Moter_A(H2_REVERSE_RIGHT_PWM);
+            Moter_B(H2_REVERSE_LEFT_PWM);
             return 0U;
         }
     }
-    return 1U;
-}
-
-static void State_UpdatePlaceFromRxBuffer2(void)
-{
-    uint8_t i;
-    uint8_t n = (g_rx2_size > 20U) ? 20U : (uint8_t)g_rx2_size;
-
-    for (i = 0U; i < 20U; i++)
+    else if (black_count < H2_MARKER_BLACK_COUNT)
     {
-        place[i] = 0U;
+        h2_marker_active = 0U;
     }
 
-    for (i = 0U; i < n; i++)
+    if (h2_straight_active != 0U)
     {
-        place[i] = State_DecodePlaceDigit(rxBuffer2[i]);
-    }
-    place_len = n;
-}
-
-static void State_PreTargetReset(void)
-{
-    g_pre_target_valid = 0U;
-    g_pre_target_point = 0U;
-    g_pre_target_hold_started = 0U;
-    g_pre_target_hold_tick = 0U;
-}
-
-static uint8_t State_GetDirectTargetCoord(uint8_t target_point, float *x, float *y)
-{
-    if ((x == 0) || (y == 0))
-    {
-        return 0U;
-    }
-    if ((target_point < 1U) || (target_point > 9U))
-    {
-        return 0U;
-    }
-
-    *x = (float)g_shijue_centers[target_point - 1U].x;
-    *y = (float)g_shijue_centers[target_point - 1U].y;
-    if (target_point == 1U)
-    {
-        *x += STATE_TARGET137_INSET;
-        *y += STATE_TARGET137_INSET;
-    }
-    else if (target_point == 3U)
-    {
-        *x -= STATE_TARGET137_INSET;
-        *y += STATE_TARGET137_INSET;
-    }
-    else if (target_point == 7U)
-    {
-        *x += STATE_TARGET137_INSET;
-        *y -= STATE_TARGET137_INSET;
-    }
-    else if (target_point == 9U)
-    {
-        *x += STATE_TARGET9_INSET;
-        *y += STATE_TARGET9_INSET;
-    }
-    return 1U;
-}
-
-static uint8_t State_IsPreTargetPoint(uint8_t point)
-{
-    if ((point == 1U) || (point == 3U) || (point == 7U) || (point == 9U))
-    {
-        return 1U;
-    }
-    return 0U;
-}
-
-static uint8_t State_GetPreTargetCoord(uint8_t point, float *x, float *y)
-{
-    if ((x == 0) || (y == 0))
-    {
-        return 0U;
-    }
-
-    switch (point)
-    {
-    case 1U:
-        *x = STATE_PRE_TARGET_1_X;
-        *y = STATE_PRE_TARGET_1_Y;
-        return 1U;
-    case 3U:
-        *x = STATE_PRE_TARGET_3_X;
-        *y = STATE_PRE_TARGET_3_Y;
-        return 1U;
-    case 7U:
-        *x = STATE_PRE_TARGET_7_X;
-        *y = STATE_PRE_TARGET_7_Y;
-        return 1U;
-    case 9U:
-        *x = STATE_PRE_TARGET_9_X;
-        *y = STATE_PRE_TARGET_9_Y;
-        return 1U;
-    default:
-        return 0U;
-    }
-}
-
-static uint8_t State_GetCurrentCornerPoint(uint8_t *point)
-{
-    const uint8_t corners[4] = {1U, 3U, 7U, 9U};
-    const float detect_r2 = HOLD_RADIUS_UNIT * HOLD_RADIUS_UNIT;
-    uint8_t i;
-
-    if (point == 0)
-    {
-        return 0U;
-    }
-
-    for (i = 0U; i < 4U; i++)
-    {
-        uint8_t p = corners[i];
-        float cx = (float)g_shijue_centers[p - 1U].x;
-        float cy = (float)g_shijue_centers[p - 1U].y;
-        float dx = (float)g_shijue_x - cx;
-        float dy = (float)g_shijue_y - cy;
-        float d2 = dx * dx + dy * dy;
-        if (d2 <= detect_r2)
+        if ((uint32_t)(now_ms - h2_straight_start_ms) < H2_FIRST_STRAIGHT_MS)
         {
-            *point = p;
-            return 1U;
+            Moter_A(-H2_BASE_PWM);
+            Moter_B(-H2_BASE_PWM);
+            return 0U;
         }
+        h2_straight_active = 0U;
     }
+
+    /* Â∑¶ËΩÆB/TIM3ÔºåÂè≥ËΩÆA/TIM4ÔºõË¥üÂèÇÊï∞ÂâçËøõÔºåÊ≠£ÂèÇÊï∞ÂêéÈÄÄ„ÄÇ */
+    Moter_A(-H2_BASE_PWM - turn);
+    Moter_B(-H2_BASE_PWM + turn);
     return 0U;
 }
 
-static void State_SetTargetDirect(uint8_t target_point)
+static void State_End(StatePage_t page, uint32_t now_ms)
 {
-    float final_x;
-    float final_y;
-    float pre_x;
-    float pre_y;
-    float dx;
-    float dy;
-    float dist2;
-    uint32_t now;
-    const float pre_r2 = STATE_PRE_TARGET_RADIUS * STATE_PRE_TARGET_RADIUS;
-    uint8_t start_corner = 0U;
+    if (current_page == STATE_PAGE_RUNNING)
+    {
+        stopped_elapsed_ms = now_ms - start_time_ms;
+        current_page = page;
+        display_dirty = 1U;
+    }
+}
 
-    if (!State_GetDirectTargetCoord(target_point, &final_x, &final_y))
+static void State_Start(uint32_t now_ms)
+{
+    if (current_page != STATE_PAGE_READY)
     {
         return;
     }
 
-    if (!g_pre_target_valid)
+    start_time_ms = now_ms;
+    stopped_elapsed_ms = 0U;
+    current_page = STATE_PAGE_RUNNING;
+    last_display_half_second = 0xFFFFFFFFU;
+
+    if (current_mode == STATE_MODE_H2_CAR_LOOP)
     {
-        if (State_GetCurrentCornerPoint(&start_corner) &&
-            State_IsPreTargetPoint(start_corner) &&
-            (start_corner != target_point))
-        {
-            g_pre_target_valid = 1U;
-            g_pre_target_point = start_corner;
-            g_pre_target_hold_started = 0U;
-            g_pre_target_hold_tick = 0U;
-        }
+        State_H2Reset();
     }
+    display_dirty = 1U;
+}
 
-    if (g_pre_target_valid && State_GetPreTargetCoord(g_pre_target_point, &pre_x, &pre_y))
+static void State_SetTarget(int16_t new_target_tenth_cm)
+{
+    if (new_target_tenth_cm > 125) new_target_tenth_cm = 125;
+    if (new_target_tenth_cm < -125) new_target_tenth_cm = -125;
+    target_tenth_cm = new_target_tenth_cm;
+}
+
+static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
+{
+    switch (current_page)
     {
-        dx = (float)g_shijue_x - pre_x;
-        dy = (float)g_shijue_y - pre_y;
-        dist2 = dx * dx + dy * dy;
-
-        if (dist2 <= pre_r2)
+    case STATE_PAGE_SELECT:
+        if (key == KEY_EVENT_1)
         {
-            now = HAL_GetTick();
-            if (!g_pre_target_hold_started)
+            selected_item = (selected_item <= 2U) ? 6U : selected_item - 1U;
+            display_dirty = 1U;
+        }
+        else if (key == KEY_EVENT_2)
+        {
+            selected_item = (selected_item >= 6U) ? 2U : selected_item + 1U;
+            display_dirty = 1U;
+        }
+        else if (key == KEY_EVENT_3)
+        {
+            current_mode = (StateMode_t)selected_item;
+            stopped_elapsed_ms = 0U;
+            current_page = (current_mode == STATE_MODE_H6_LOOP_TARGET)
+                         ? STATE_PAGE_TARGET_SET
+                         : STATE_PAGE_READY;
+            display_dirty = 1U;
+        }
+        break;
+
+    case STATE_PAGE_TARGET_SET:
+        if (key == KEY_EVENT_1)
+        {
+            State_SetTarget(target_tenth_cm + 1);
+            display_dirty = 1U;
+        }
+        else if (key == KEY_EVENT_2)
+        {
+            State_SetTarget(target_tenth_cm - 1);
+            display_dirty = 1U;
+        }
+        else if (key == KEY_EVENT_3)
+        {
+            current_page = STATE_PAGE_READY;
+            display_dirty = 1U;
+        }
+        else if (key == KEY_EVENT_4)
+        {
+            current_mode = STATE_MODE_NONE;
+            current_page = STATE_PAGE_SELECT;
+            display_dirty = 1U;
+        }
+        break;
+
+    case STATE_PAGE_READY:
+        if (key == KEY_EVENT_3)
+        {
+            State_Start(now_ms);
+        }
+        else if (key == KEY_EVENT_4)
+        {
+            if (current_mode == STATE_MODE_H6_LOOP_TARGET)
             {
-                g_pre_target_hold_started = 1U;
-                g_pre_target_hold_tick = now;
+                current_page = STATE_PAGE_TARGET_SET;
             }
-            else if ((uint32_t)(now - g_pre_target_hold_tick) >= STATE_PRE_TARGET_HOLD_MS)
+            else
             {
-                g_pre_target_valid = 0U;
-                g_pre_target_hold_started = 0U;
-                g_pre_target_hold_tick = 0U;
+                current_mode = STATE_MODE_NONE;
+                current_page = STATE_PAGE_SELECT;
+            }
+            display_dirty = 1U;
+        }
+        break;
+
+    case STATE_PAGE_RUNNING:
+        if (key == KEY_EVENT_4)
+        {
+            State_End(STATE_PAGE_STOPPED, now_ms);
+            if (current_mode == STATE_MODE_H2_CAR_LOOP)
+            {
+                State_H2Brake();
             }
         }
-        else
+        break;
+
+    case STATE_PAGE_FINISHED:
+    case STATE_PAGE_STOPPED:
+    case STATE_PAGE_TIMEOUT:
+        if (key == KEY_EVENT_4)
         {
-            g_pre_target_hold_started = 0U;
-            g_pre_target_hold_tick = 0U;
+            stopped_elapsed_ms = 0U;
+            current_page = STATE_PAGE_READY;
+            display_dirty = 1U;
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+static void State_RunMode(uint32_t now_ms)
+{
+    switch (current_mode)
+    {
+    case STATE_MODE_H2_CAR_LOOP:
+        if (State_H2Run(now_ms) != 0U)
+        {
+            State_End(STATE_PAGE_FINISHED, now_ms);
+        }
+        break;
+
+    case STATE_MODE_H3_BALL_MOVE:
+    case STATE_MODE_H4_AB_BALANCE:
+    case STATE_MODE_H5_LOOP_CENTER:
+    case STATE_MODE_H6_LOOP_TARGET:
+        /* H3-H6 ÂÖà‰øùÁïôÁ©∫ÂÆûÁé∞„ÄÇ */
+        break;
+
+    default:
+        break;
+    }
+}
+
+static int32_t State_FloatToCenti(float value)
+{
+    return (int32_t)(value * 100.0f);
+}
+
+static void State_SendVisionDebug(uint32_t now_ms)
+{
+    int32_t origin = State_FloatToCenti(g_shijue_origin_cm);
+    int32_t position = State_FloatToCenti(g_shijue_position_cm);
+    int32_t velocity = State_FloatToCenti(g_shijue_velocity_cm_s);
+    uint32_t origin_abs = (uint32_t)((origin < 0) ? -origin : origin);
+    uint32_t position_abs = (uint32_t)((position < 0) ? -position : position);
+    uint32_t velocity_abs = (uint32_t)((velocity < 0) ? -velocity : velocity);
+    int length;
+
+    if (((uint32_t)(now_ms - vision_debug_time_ms) < 1000U) ||
+        (BSP_UartTxReady(BSP_UART_2) == 0U))
+    {
+        return;
+    }
+
+    /* USART2 ÊØèÁßíËæìÂá∫‰∏ÄÊ¨° USART1 ËßÜËßâÂçèËÆÆÁöÑËß£ÊûêÁªìÊûú„ÄÇ */
+    length = snprintf((char *)vision_debug_buffer,
+                      sizeof(vision_debug_buffer),
+                      "VISION O=%c%lu.%02lu(%u) P=%c%lu.%02lu(%u) V=%c%lu.%02lu(%u) TYPE=0x%02X SEQ=%u ERR=%u CNT=%u\r\n",
+                      (origin < 0) ? '-' : '+',
+                      (unsigned long)(origin_abs / 100U),
+                      (unsigned long)(origin_abs % 100U),
+                      (unsigned int)g_shijue_origin_valid,
+                      (position < 0) ? '-' : '+',
+                      (unsigned long)(position_abs / 100U),
+                      (unsigned long)(position_abs % 100U),
+                      (unsigned int)g_shijue_position_valid,
+                      (velocity < 0) ? '-' : '+',
+                      (unsigned long)(velocity_abs / 100U),
+                      (unsigned long)(velocity_abs % 100U),
+                      (unsigned int)g_shijue_velocity_valid,
+                      (unsigned int)g_shijue_last_type,
+                      (unsigned int)g_shijue_last_seq,
+                      (unsigned int)g_shijue_error_flag,
+                      (unsigned int)g_shijue_count);
+
+    if ((length > 0) && ((size_t)length < sizeof(vision_debug_buffer)) &&
+        (BSP_UartSendDma(BSP_UART_2,
+                         vision_debug_buffer,
+                         (uint16_t)length) == BSP_STATUS_OK))
+    {
+        vision_debug_time_ms = now_ms;
+    }
+}
+
+static void State_UpdateDisplay(uint32_t now_ms)
+{
+    if (current_page == STATE_PAGE_RUNNING)
+    {
+        uint32_t half_seconds = State_GetElapsedHalfSeconds(now_ms);
+        if (half_seconds != last_display_half_second)
+        {
+            last_display_half_second = half_seconds;
+            display_dirty = 1U;
         }
     }
 
-    if (g_pre_target_valid && State_GetPreTargetCoord(g_pre_target_point, &pre_x, &pre_y))
+    if (current_page != last_display_page)
     {
-        g_roll_target_x = pre_x;
-        g_roll_target_y = pre_y;
+        last_display_page = current_page;
+        display_dirty = 1U;
     }
-    else
+
+    if (display_dirty != 0U)
     {
-        g_roll_target_x = final_x;
-        g_roll_target_y = final_y;
+        State_Render(now_ms);
     }
 }
 
 void State_Init(void)
 {
-    {
-        uint8_t i;
-        for (i = 0U; i < 20U; i++)
-        {
-            place[i] = 0U;
-            g_place_prev[i] = 0xFFU;
-        }
-    }
-    place_len = 0U;
-    State_PreTargetReset();
-    g_place_prev_len = 0xFFU;
+    uint32_t now_ms = BSP_TimeMs();
 
-    g_state = 0x00U;
-    g_state9_elapsed_ms = 0U;
-}
+    BSP_KeyInit();
+    OLED_Init();
 
-void State_Set(uint8_t state)
-{
-    g_state = State_Normalize(state);
-}
+    current_mode = STATE_MODE_NONE;
+    current_page = STATE_PAGE_SELECT;
+    selected_item = 2U;
+    target_tenth_cm = 0;
+    start_time_ms = 0U;
+    stopped_elapsed_ms = 0U;
+    vision_debug_time_ms = now_ms;
+    last_display_half_second = 0xFFFFFFFFU;
+    last_display_page = STATE_PAGE_SELECT;
+    memset(display_cache, 0, sizeof(display_cache));
+    State_H2Reset();
 
-uint8_t State_Get(void)
-{
-    return g_state;
-}
-
-void State_UpdateFromRxBuffer2(void)
-{
-    uint8_t raw = rxBuffer2[0];
-    uint8_t current = State_Get();
-
-    if (((current == 0x09U) || (current == 0x08U) || (current == 0x06U) || (current == 0x05U)) && State_IsPlaceFrame())
-    {
-        return;
-    }
-    if (((current == 0x01U) || (current == 0x04U)) &&
-        (g_rx2_size > 0U) &&
-        (rxBuffer2[0] >= 0x31U) && (rxBuffer2[0] <= 0x39U))
-    {
-        /* state1/state4 œ¬£¨µ•◊÷Ω⁄ ASCII  ˝◊÷◊˜Œ™ƒø±Íµ„ ‰»Î£¨≤ªµ±≥…◊¥Ã¨«–ªª */
-        return;
-    }
-
-    if ((raw >= 0x01U) && (raw <= 0x0BU))
-    {
-        State_Set(raw);
-    }
-    else
-    {
-        State_Set(0x00U);
-    }
+    display_dirty = 1U;
+    State_Render(now_ms);
 }
 
 void State_RunCurrent(void)
 {
-    State_UpdateFromRxBuffer2();
+    uint32_t now_ms = BSP_TimeMs();
+    KeyEvent_t key = BSP_KeyScan(now_ms);
 
-    switch (g_state)
+    State_HandleKey(key, now_ms);
+
+    if (current_page == STATE_PAGE_RUNNING)
     {
-    case 0x01:
+        State_RunMode(now_ms);
+    }
+    else if ((current_mode == STATE_MODE_H2_CAR_LOOP) &&
+             ((current_page == STATE_PAGE_STOPPED) ||
+              (current_page == STATE_PAGE_FINISHED)))
     {
-        uint8_t target_point = 9U;
-        uint8_t has_target = 0U;
-        State_PreTargetReset();
-        while (g_state == 0x01U)
-        {
-            uint8_t new_point;
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(1, 1, g_shijue_x  , 3);
-            OLED_ShowNum(2, 1, g_shijue_y    , 3);
-
-            if (State_TryGetAsciiTargetPoint(&new_point))
-            {
-                if (target_point != new_point)
-                {
-                    target_point = new_point;
-                    State_PreTargetReset();
-                }
-                has_target = 1U;
-            }
-
-            if (!has_target)
-            {
-                (void)0;
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-                State_UpdateFromRxBuffer2();
-                if (g_state != 0x01U) break;
-                HAL_Delay(1);
-                continue;
-            }
-            State_SetTargetDirect(target_point);
-
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x01U) break;
-            HAL_Delay(1);
-        }
-        break;
+        State_H2Brake();
     }
 
-    case 0x02:
-        State_PreTargetReset();
-        while (g_state == 0x02U)
-        {
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(1, 1, g_shijue_x  , 3);
-            OLED_ShowNum(2, 1, g_shijue_y    , 3);
-            State_SetTargetDirect(5U);
-
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x02U) break;
-            HAL_Delay(1);
-        }
-        break;
-
-    case 0x03:
-        while (g_state == 0x03U)
-        {
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x03U) break;
-            HAL_Delay(1);
-        }
-        break;
-
-    case 0x04:
-    {
-        uint8_t target_point = 9U;
-        uint8_t has_target = 1U;
-        State_PreTargetReset();
-
-        while (g_state == 0x04U)
-        {
-            uint8_t new_point;
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-
-            if (State_TryGetAsciiTargetPoint(&new_point))
-            {
-                if (target_point != new_point)
-                {
-                    target_point = new_point;
-                    State_PreTargetReset();
-                }
-                has_target = 1U;
-            }
-
-            if (!has_target)
-            {
-                (void)0;
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-                State_UpdateFromRxBuffer2();
-                if (g_state != 0x04U) break;
-                HAL_Delay(1);
-                continue;
-            }
-            State_SetTargetDirect(target_point);
-
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x04U) break;
-            HAL_Delay(1);
-        }
-        break;
-    }
-
-    case 0x05:
-    {
-        uint8_t seq_ready = 0U;
-        uint8_t seq_idx = 0U;
-        uint8_t hold_started = 0U;
-        uint32_t hold_tick = 0U;
-        const float r2 = HOLD_RADIUS_UNIT * HOLD_RADIUS_UNIT;
-
-        State_PreTargetReset();
-        while (g_state == 0x05U)
-        {
-            float target_x = (float)g_shijue_centers[4].x;
-            float target_y = (float)g_shijue_centers[4].y;
-            float dx;
-            float dy;
-            float dist2;
-            uint32_t now;
-            uint32_t hold_ms_show;
-            uint8_t p;
-
-            hold_ms_show = 0U;
-            if (hold_started)
-            {
-                hold_ms_show = (uint32_t)(HAL_GetTick() - hold_tick);
-                if (hold_ms_show > STATE5_HOLD_MS)
-                {
-                    hold_ms_show = STATE5_HOLD_MS;
-                }
-            }
-            OLED_ShowNum(4,11, hold_ms_show,4);
-
-            if (State_IsPlaceFrame())
-            {
-                State_UpdatePlaceFromRxBuffer2();
-                if ((place_len >= 3U) && State_IsPlaceChanged())
-                {
-                    seq_ready = 1U;
-                    seq_idx = 0U;
-                    hold_started = 0U;
-                    State_PreTargetReset();
-                    State_SavePlaceSnapshot();
-                }
-            }
-
-            if (!seq_ready)
-            {
-                (void)0;
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-                State_UpdateFromRxBuffer2();
-                if (g_state != 0x05U) break;
-                HAL_Delay(1);
-                continue;
-            }
-
-            if (seq_ready)
-            {
-                p = place[seq_idx];
-                if ((p >= 1U) && (p <= 9U))
-                {
-                    State_GetDirectTargetCoord(p, &target_x, &target_y);
-                }
-                else
-                {
-                    seq_ready = 0U;
-                    hold_started = 0U;
-                    State_PreTargetReset();
-                }
-            }
-
-            if (seq_ready)
-            {
-                State_SetTargetDirect(p);
-            }
-
-            if (seq_ready)
-            {
-                dx = (float)g_shijue_x - target_x;
-                dy = (float)g_shijue_y - target_y;
-                dist2 = dx * dx + dy * dy;
-
-                if (dist2 <= r2)
-                {
-                    now = HAL_GetTick();
-                    if (!hold_started)
-                    {
-                        hold_started = 1U;
-                        hold_tick = now;
-                    }
-                    else if ((uint32_t)(now - hold_tick) >= STATE5_HOLD_MS)
-                    {
-                        if ((seq_idx + 1U) < place_len)
-                        {
-                            seq_idx++;
-                            State_PreTargetReset();
-                        }
-                        hold_started = 0U;
-                    }
-                }
-                else
-                {
-                    hold_started = 0U;
-                }
-            }
-
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x05U) break;
-            HAL_Delay(1);
-        }
-        break;
-    }
-
-    case 0x06:
-    {
-        uint8_t seq_ready = 0U;
-        uint8_t point_a = 1U;
-        uint8_t point_b = 9U;
-        uint8_t target_is_a = 1U;
-        uint8_t switches_done = 0U; /* ¡Ω¥Œ—≠ª∑π≤4¥Œ«–ªª */
-        uint8_t hold_started = 0U;
-        uint32_t hold_tick = 0U;
-        const float r2 = HOLD_RADIUS_UNIT * HOLD_RADIUS_UNIT;
-
-        State_PreTargetReset();
-        while (g_state == 0x06U)
-        {
-            uint8_t target_point = point_a;
-            float target_x;
-            float target_y;
-            float dx;
-            float dy;
-            float dist2;
-            uint32_t now;
-
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-
-            if (State_IsPlaceFrame())
-            {
-                State_UpdatePlaceFromRxBuffer2();
-                if ((place_len >= 2U) && State_IsPlaceChanged())
-                {
-                    if ((place[0] >= 1U) && (place[0] <= 9U) &&
-                        (place[1] >= 1U) && (place[1] <= 9U))
-                    {
-                        point_a = place[0];
-                        point_b = place[1];
-                        seq_ready = 1U;
-                        target_is_a = 1U;
-                        switches_done = 0U;
-                        hold_started = 0U;
-                        State_PreTargetReset();
-                    }
-                    State_SavePlaceSnapshot();
-                }
-            }
-
-            if (!seq_ready)
-            {
-                (void)0;
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-                State_UpdateFromRxBuffer2();
-                if (g_state != 0x06U) break;
-                HAL_Delay(1);
-                continue;
-            }
-
-            if (seq_ready)
-            {
-                target_point = target_is_a ? point_a : point_b;
-            }
-            State_GetDirectTargetCoord(target_point, &target_x, &target_y);
-            State_SetTargetDirect(target_point);
-
-            if (seq_ready)
-            {
-                dx = (float)g_shijue_x - target_x;
-                dy = (float)g_shijue_y - target_y;
-                dist2 = dx * dx + dy * dy;
-
-                if (dist2 <= r2)
-                {
-                    now = HAL_GetTick();
-                    if (!hold_started)
-                    {
-                        hold_started = 1U;
-                        hold_tick = now;
-                    }
-                    else if ((uint32_t)(now - hold_tick) >= STATE6_HOLD_MS)
-                    {
-                        if ((point_a != point_b) && (switches_done < 4U))
-                        {
-                            target_is_a = target_is_a ? 0U : 1U;
-                            switches_done++;
-                            State_PreTargetReset();
-                        }
-                        hold_started = 0U;
-                    }
-                }
-                else
-                {
-                    hold_started = 0U;
-                }
-            }
-
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x06U) break;
-            HAL_Delay(1);
-        }
-        break;
-    }
-
-    case 0x07:
-        while (g_state == 0x07U)
-        {
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x07U) break;
-            HAL_Delay(1);
-        }
-        break;
-
-    case 0x08:
-    {
-        uint8_t seq_ready = 0U;
-        uint8_t seq_idx = 0U;
-        uint8_t hold_started = 0U;
-        uint32_t hold_tick = 0U;
-        const float r2 = HOLD_RADIUS_UNIT * HOLD_RADIUS_UNIT;
-
-        State_PreTargetReset();
-        while (g_state == 0x08U)
-        {
-            float target_x = (float)g_shijue_centers[4].x;
-            float target_y = (float)g_shijue_centers[4].y;
-            float dx;
-            float dy;
-            float dist2;
-            uint32_t now;
-            uint8_t p;
-
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-
-            if (State_IsPlaceFrame())
-            {
-                State_UpdatePlaceFromRxBuffer2();
-                if ((place_len >= 1U) && State_IsPlaceChanged())
-                {
-                    seq_ready = 1U;
-                    seq_idx = 0U;
-                    hold_started = 0U;
-                    State_PreTargetReset();
-                    State_SavePlaceSnapshot();
-                }
-            }
-
-            if (!seq_ready)
-            {
-                (void)0;
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-                State_UpdateFromRxBuffer2();
-                if (g_state != 0x08U) break;
-                HAL_Delay(1);
-                continue;
-            }
-
-            if (seq_ready)
-            {
-                p = place[seq_idx];
-                if ((p >= 1U) && (p <= 9U))
-                {
-                    State_GetDirectTargetCoord(p, &target_x, &target_y);
-                }
-                else
-                {
-                    seq_ready = 0U;
-                    hold_started = 0U;
-                    State_PreTargetReset();
-                }
-            }
-
-            if (seq_ready)
-            {
-                State_SetTargetDirect(p);
-            }
-
-            if (seq_ready)
-            {
-                dx = (float)g_shijue_x - target_x;
-                dy = (float)g_shijue_y - target_y;
-                dist2 = dx * dx + dy * dy;
-
-                if (dist2 <= r2)
-                {
-                    now = HAL_GetTick();
-                    if (!hold_started)
-                    {
-                        hold_started = 1U;
-                        hold_tick = now;
-                    }
-                    else if ((uint32_t)(now - hold_tick) >= STATE8_HOLD_MS)
-                    {
-                        if ((seq_idx + 1U) < place_len)
-                        {
-                            seq_idx++;
-                            State_PreTargetReset();
-                        }
-                        hold_started = 0U;
-                    }
-                }
-                else
-                {
-                    hold_started = 0U;
-                }
-            }
-
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x08U) break;
-            HAL_Delay(1);
-        }
-        break;
-    }
-
-    case 0x09:
-    {
-        uint8_t seq_ready = 0U;
-        uint8_t seq_idx = 0U;
-        uint8_t hold_started = 0U;
-        uint8_t elapsed_latched = 0U;
-        uint32_t hold_tick = 0U;
-        uint32_t start_tick = 0U;
-        const float r2 = HOLD_RADIUS_UNIT * HOLD_RADIUS_UNIT;
-
-        State_PreTargetReset();
-        while (g_state == 0x09U)
-        {
-            float target_x = (float)g_shijue_centers[4].x;
-            float target_y = (float)g_shijue_centers[4].y;
-            float dx;
-            float dy;
-            float dist2;
-            uint32_t now;
-            uint8_t p;
-
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-            OLED_ShowNum(4,11, g_state,2);
-
-            if (State_IsPlaceFrame())
-            {
-                State_UpdatePlaceFromRxBuffer2();
-                if ((place_len >= 1U) && State_IsPlaceChanged())
-                {
-                    seq_ready = 1U;
-                    seq_idx = 0U;
-                    hold_started = 0U;
-                    elapsed_latched = 0U;
-                    start_tick = HAL_GetTick();
-                    g_state9_elapsed_ms = 0U;
-                    State_PreTargetReset();
-                    State_SavePlaceSnapshot();
-                }
-            }
-
-            if (!seq_ready)
-            {
-                (void)0;
-                __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-                State_UpdateFromRxBuffer2();
-                if (g_state != 0x09U) break;
-                HAL_Delay(1);
-                continue;
-            }
-
-            if (seq_ready)
-            {
-                p = place[seq_idx];
-                if ((p >= 1U) && (p <= 9U))
-                {
-                    State_GetDirectTargetCoord(p, &target_x, &target_y);
-                }
-                else
-                {
-                    seq_ready = 0U;
-                    hold_started = 0U;
-                    State_PreTargetReset();
-                }
-            }
-
-            if (seq_ready)
-            {
-                State_SetTargetDirect(p);
-            }
-
-            if (seq_ready)
-            {
-                dx = (float)g_shijue_x - target_x;
-                dy = (float)g_shijue_y - target_y;
-                dist2 = dx * dx + dy * dy;
-
-                if (dist2 <= r2)
-                {
-                    now = HAL_GetTick();
-                    if (!hold_started)
-                    {
-                        hold_started = 1U;
-                        hold_tick = now;
-                    }
-                    else if ((uint32_t)(now - hold_tick) >= STATE8_HOLD_MS)
-                    {
-                        if ((seq_idx + 1U) < place_len)
-                        {
-                            seq_idx++;
-                            State_PreTargetReset();
-                        }
-                        else if (!elapsed_latched)
-                        {
-                            g_state9_elapsed_ms = (uint32_t)(now - start_tick);
-                            elapsed_latched = 1U;
-                        }
-                        hold_started = 0U;
-                    }
-                }
-                else
-                {
-                    hold_started = 0U;
-                }
-            }
-
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x09U) break;
-            HAL_Delay(1);
-        }
-        break;
-    }
-
-    case 0x0A:
-    {
-        uint8_t step = 0U;
-        uint32_t step_tick = HAL_GetTick();
-        const int32_t amp = 50;
-        const uint32_t step_ms = 50U;
-
-        while (g_state == 0x0AU)
-        {
-            uint32_t now = HAL_GetTick();
-            int32_t out_x = 1350;
-            int32_t out_y = 1400;
-
-            if ((uint32_t)(now - step_tick) >= step_ms)
-            {
-                step = (uint8_t)((step + 1U) & 0x03U);
-                step_tick = now;
-            }
-
-            if (step == 0U)
-            {
-                out_y += amp; /* yÃß…˝ */
-            }
-            else if (step == 1U)
-            {
-                out_x += amp; /* xÃß…˝ */
-            }
-            else if (step == 2U)
-            {
-                out_y -= amp; /* yœ¬Ωµ */
-            }
-            else
-            {
-                out_x -= amp; /* xœ¬Ωµ */
-            }
-
-            (void)0;
-            __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, (uint16_t)out_y);
-            OLED_ShowHexNum(4,11, g_state,2);
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x0AU) break;
-            HAL_Delay(1);
-        }
-        break;
-    }
-
-    case 0x0B:
-        while (g_state == 0x0BU)
-        {
-            OLED_ShowHexNum(4,11, g_state,2);
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x0BU) break;
-            (void)0;
-            __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-            HAL_Delay(1);
-        }
-        break;
-
-    default:
-        while (g_state == 0x00U)
-        {
-            OLED_ShowHexNum(4,11, g_state,2);
-            State_RunPidUpdate();
-            State_UpdateFromRxBuffer2();
-            if (g_state != 0x00U) break;
-            (void)0;
-            __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1400);
-            HAL_Delay(1);
-        }
-        break;
-    }
-}
-
-static void State_RunPidUpdate(void)
-{
-    if (g_roll_flag_pos)
-    {
-        g_roll_flag_pos = 0U;
-        RollCtrl_UpdatePos((float)g_shijue_x, (float)g_shijue_y, ROLL_POS_DT_S);
-    }
-
-    if (g_roll_flag_vel)
-    {
-        g_roll_flag_vel = 0U;
-        RollCtrl_UpdateVel(g_shijue_vx, g_shijue_vy, ROLL_VEL_DT_S);
-        RollCtrl_UpdateAngleOutput_duoji(0.0f, 0.0f, ROLL_VEL_DT_S);
-    }
-}
-
-static uint8_t State_TryGetAsciiTargetPoint(uint8_t *point)
-{
-    uint8_t raw;
-    if (point == 0)
-    {
-        return 0U;
-    }
-    if (g_rx2_size == 0U)
-    {
-        return 0U;
-    }
-    raw = rxBuffer2[0];
-    if ((raw >= 0x31U) && (raw <= 0x39U))
-    {
-        *point = (uint8_t)(raw - 0x30U);
-        return 1U;
-    }
-    return 0U;
-}
-
-static uint8_t State_IsPlaceChanged(void)
-{
-    uint8_t i;
-    if (place_len != g_place_prev_len)
-    {
-        return 1U;
-    }
-    for (i = 0U; i < place_len; i++)
-    {
-        if (place[i] != g_place_prev[i])
-        {
-            return 1U;
-        }
-    }
-    return 0U;
-}
-
-static void State_SavePlaceSnapshot(void)
-{
-    uint8_t i;
-    g_place_prev_len = place_len;
-    for (i = 0U; i < 20U; i++)
-    {
-        g_place_prev[i] = place[i];
-    }
+    State_SendVisionDebug(now_ms);
+    State_UpdateDisplay(now_ms);
 }

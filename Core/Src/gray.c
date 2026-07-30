@@ -8,13 +8,14 @@ uint8_t Gray_Read(void)
 
 int16_t Gray_GetError(void)
 {
-    static const int16_t weight[8] = {-35, -25, -15, -5, 5, 15, 25, 35};
+    /* HUI1~HUI8 从车体左向右排列；正误差表示黑线位于左侧。 */
+    static const int16_t weight[8] = {22, 17, 9,0, -0, -9, -17, -22};
     uint8_t gray = Gray_Read();
     int16_t sum = 0;
     uint8_t count = 0U;
 
     for (uint8_t i = 0U; i < 8U; i++) {
-        if ((gray & (uint8_t)(1U << i)) != 0U) {
+        if ((gray & (uint8_t)(1U << i)) == 0U) {
             sum += weight[i];
             count++;
         }
@@ -29,10 +30,10 @@ int16_t Gray_GetError(void)
 
 uint8_t Gray_AllBlack(void)
 {
-    return (Gray_Read() == 0xFFU) ? 1U : 0U;
+    return (Gray_Read() == 0x00U) ? 1U : 0U;
 }
 
 uint8_t Gray_AllWhite(void)
 {
-    return (Gray_Read() == 0x00U) ? 1U : 0U;
+    return (Gray_Read() == 0xFFU) ? 1U : 0U;
 }

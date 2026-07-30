@@ -59,14 +59,14 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED1_Pin GPIO_PIN_2
 #define LED1_GPIO_Port GPIOE
-#define KAIGUAN2_Pin GPIO_PIN_4
-#define KAIGUAN2_GPIO_Port GPIOE
+#define KAIGUAN4_Pin GPIO_PIN_4
+#define KAIGUAN4_GPIO_Port GPIOE
 #define KAIGUAN1_Pin GPIO_PIN_13
 #define KAIGUAN1_GPIO_Port GPIOC
 #define HUI5_Pin GPIO_PIN_2
 #define HUI5_GPIO_Port GPIOF
-#define KAIGUAN2F3_Pin GPIO_PIN_3
-#define KAIGUAN2F3_GPIO_Port GPIOF
+#define KAIGUAN2_Pin GPIO_PIN_3
+#define KAIGUAN2_GPIO_Port GPIOF
 #define HUI6_Pin GPIO_PIN_4
 #define HUI6_GPIO_Port GPIOF
 #define KAIGUAN3_Pin GPIO_PIN_5

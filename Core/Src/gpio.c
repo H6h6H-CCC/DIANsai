@@ -57,12 +57,12 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
 
-  /* SPI 设备未通信时必须保持片选为高电平。 */
-  HAL_GPIO_WritePin(spics_GPIO_Port, spics_Pin, GPIO_PIN_SET);
-
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, E1_Pin|E2_Pin|F1_Pin|F2_Pin
                           |C2_Pin|C1_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(spics_GPIO_Port, spics_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, D2_Pin|D1_Pin|GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
@@ -80,11 +80,16 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : KAIGUAN2_Pin HUI7_Pin */
-  GPIO_InitStruct.Pin = KAIGUAN2_Pin|HUI7_Pin;
+  /*Configure GPIO pin : KAIGUAN4_Pin */
+  GPIO_InitStruct.Pin = KAIGUAN4_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : HUI7_Pin */
+  GPIO_InitStruct.Pin = HUI7_Pin;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(HUI7_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : KAIGUAN1_Pin */
   GPIO_InitStruct.Pin = KAIGUAN1_Pin;
@@ -98,8 +103,8 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : KAIGUAN2F3_Pin KAIGUAN3_Pin */
-  GPIO_InitStruct.Pin = KAIGUAN2F3_Pin|KAIGUAN3_Pin;
+  /*Configure GPIO pins : KAIGUAN2_Pin KAIGUAN3_Pin */
+  GPIO_InitStruct.Pin = KAIGUAN2_Pin|KAIGUAN3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);

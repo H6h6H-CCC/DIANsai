@@ -16,6 +16,7 @@ void Moter_Init(void)
 
 void Moter_A(int16_t pwm)
 {
+    /* 新车头方向的右轮：负值前进，正值后退。 */
     uint16_t pwm_abs = ClampPwmAbs(pwm);
     if (pwm_abs == 0) {
         BSP_MotorWrite(BSP_MOTOR_A, 1U, 1U, 0U);
@@ -28,6 +29,7 @@ void Moter_A(int16_t pwm)
 
 void Moter_B(int16_t pwm)
 {
+    /* 新车头方向的左轮：负值前进，正值后退。 */
     uint16_t pwm_abs = ClampPwmAbs(pwm);
     if (pwm_abs == 0) {
         BSP_MotorWrite(BSP_MOTOR_B, 1U, 1U, 0U);
@@ -36,6 +38,18 @@ void Moter_B(int16_t pwm)
     } else {
         BSP_MotorWrite(BSP_MOTOR_B, 1U, 0U, pwm_abs);
     }
+}
+
+void Moter_A_Brake(void)
+{
+    /* IN1/IN2同时为高并保持满PWM，使用H桥短路制动。 */
+    BSP_MotorWrite(BSP_MOTOR_A, 1U, 1U, PWM_MAX);
+}
+
+void Moter_B_Brake(void)
+{
+    /* IN1/IN2同时为高并保持满PWM，使用H桥短路制动。 */
+    BSP_MotorWrite(BSP_MOTOR_B, 1U, 1U, PWM_MAX);
 }
 
 void Moter_C(int16_t pwm)

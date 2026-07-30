@@ -4,17 +4,20 @@
 #include "bsp_uart.h"
 #include <stdio.h>
 
-#define ENCODER3_DIR (-1)
-#define ENCODER4_DIR (1)
+/* 新车头方向：左轮B使用TIM3，右轮A使用TIM4；车辆前进时均为正。 */
+#define ENCODER3_DIR (1)
+#define ENCODER4_DIR (-1)
 
 static int16_t s_last_cnt = 0;
 static int16_t s_last_delta = 0;
 static int32_t s_total = 0;
 static volatile int32_t s_report_delta = 0;
+static volatile int32_t s_speed_cps = 0;
 static int16_t s_last_cnt4 = 0;
 static int16_t s_last_delta4 = 0;
 static int32_t s_total4 = 0;
 static volatile int32_t s_report_delta4 = 0;
+static volatile int32_t s_speed_cps4 = 0;
 
 void Encoder3_Init(void)
 {
@@ -23,6 +26,7 @@ void Encoder3_Init(void)
     s_last_delta = 0;
     s_total = 0;
     s_report_delta = 0;
+    s_speed_cps = 0;
 }
 
 int16_t Encoder3_GetCount(void)
@@ -57,11 +61,17 @@ void Encoder3_Update10ms(void)
 {
     s_last_delta = Encoder3_GetDelta();
     s_report_delta += s_last_delta;
+    s_speed_cps = (int32_t)s_last_delta * 100;
 }
 
 int16_t Encoder3_GetLastDelta(void)
 {
     return s_last_delta;
+}
+
+int32_t Encoder3_GetSpeedCps(void)
+{
+    return s_speed_cps;
 }
 
 void Encoder3_ReportUart4(uint8_t count1)
@@ -92,6 +102,7 @@ void Encoder4_Init(void)
     s_last_delta4 = 0;
     s_total4 = 0;
     s_report_delta4 = 0;
+    s_speed_cps4 = 0;
 }
 
 int16_t Encoder4_GetCount(void)
@@ -126,11 +137,17 @@ void Encoder4_Update10ms(void)
 {
     s_last_delta4 = Encoder4_GetDelta();
     s_report_delta4 += s_last_delta4;
+    s_speed_cps4 = (int32_t)s_last_delta4 * 100;
 }
 
 int16_t Encoder4_GetLastDelta(void)
 {
     return s_last_delta4;
+}
+
+int32_t Encoder4_GetSpeedCps(void)
+{
+    return s_speed_cps4;
 }
 
 void Encoder_ReportUart4(uint8_t count1)

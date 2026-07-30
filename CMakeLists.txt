@@ -57,8 +57,11 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Core/Src/atk_ms53l0m.c
     ${CMAKE_SOURCE_DIR}/Core/Src/atk_ms53l0m_uart.c
     ${CMAKE_SOURCE_DIR}/Core/Src/jy61p.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/pid.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/ball_control.c
     ${CMAKE_SOURCE_DIR}/Core/Src/imu660rc.c
     ${CMAKE_SOURCE_DIR}/Core/Src/shijue.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/state.c
     ${CMAKE_SOURCE_DIR}/Core/Src/tjc_screen.c
     ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_uart.c
     ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_motor.c
@@ -70,6 +73,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_i2c.c
     ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_spi.c
     ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_input.c
+    ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_key.c
     ${CMAKE_SOURCE_DIR}/User/BSP/Src/bsp_critical.c
 )
 
