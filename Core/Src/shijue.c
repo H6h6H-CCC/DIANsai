@@ -6,10 +6,10 @@
 
 #include <string.h>
 
-volatile float g_shijue_origin_cm = 12.50f;
+#define SHIJUE_VELOCITY_DEADBAND_CM_S  0.2f
+
 volatile float g_shijue_position_cm = 0.0f;
 volatile float g_shijue_velocity_cm_s = 0.0f;
-volatile uint8_t g_shijue_origin_valid = 0U;
 volatile uint8_t g_shijue_position_valid = 0U;
 volatile uint8_t g_shijue_velocity_valid = 0U;
 volatile uint8_t g_shijue_last_type = 0U;
@@ -77,14 +77,6 @@ uint8_t Shijue_ParseFrame8(const uint8_t *frame, uint16_t len)
 
     switch (frame[1])
     {
-    case SHIJUE_TYPE_ORIGIN:
-        g_shijue_origin_valid = valid;
-        if (valid != 0U)
-        {
-            g_shijue_origin_cm = value;
-        }
-        break;
-
     case SHIJUE_TYPE_POSITION:
         g_shijue_position_valid = valid;
         if (valid != 0U)
@@ -102,6 +94,12 @@ uint8_t Shijue_ParseFrame8(const uint8_t *frame, uint16_t len)
         g_shijue_velocity_valid = valid;
         if (valid != 0U)
         {
+            /* 小速度视为静止，抑制视觉速度零点附近的抖动。 */
+            if ((value > -SHIJUE_VELOCITY_DEADBAND_CM_S) &&
+                (value < SHIJUE_VELOCITY_DEADBAND_CM_S))
+            {
+                value = 0.0f;
+            }
             g_shijue_velocity_cm_s = value;
         }
         break;
@@ -174,9 +172,9 @@ void Shijue_ProcessUsbRxBuffer(const uint8_t *buf, uint16_t len)
     Shijue_ProcessRxBuffer(buf, len);
 }
 
-uint8_t Shijue_SetOrigin(uint8_t origin_cm)
+uint8_t Shijue_SetOriginTenthCm(uint16_t origin_tenth_cm)
 {
-    if ((origin_cm < 1U) || (origin_cm > 25U) ||
+    if ((origin_tenth_cm > 250U) ||
         (BSP_UartTxReady(BSP_UART_1) == 0U))
     {
         return 0U;
@@ -184,8 +182,8 @@ uint8_t Shijue_SetOrigin(uint8_t origin_cm)
 
     tx_frame[0] = SHIJUE_FRAME_HEAD;
     tx_frame[1] = SHIJUE_TYPE_SET_ORIGIN;
-    tx_frame[2] = origin_cm;
-    tx_frame[3] = 0U;
+    tx_frame[2] = (uint8_t)(origin_tenth_cm & 0xFFU);
+    tx_frame[3] = (uint8_t)(origin_tenth_cm >> 8U);
     tx_frame[4] = 1U;
     tx_frame[5] = tx_seq;
     tx_frame[6] = (uint8_t)(tx_frame[0] + tx_frame[1] + tx_frame[2] +

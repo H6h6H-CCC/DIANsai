@@ -4,17 +4,26 @@
 #include "pid.h"
 
 #define BALL_INNER_PERIOD_MS       10U
-#define BALL_DEFAULT_OUTER_DT_S    0.033f
+#define BALL_OUTER_PERIOD_MS       50U
+#define BALL_OUTER_DT_S            0.050f
 #define BALL_INNER_DT_S            0.010f
 #define BALL_POSITION_TIMEOUT_MS   150U
 #define BALL_ANGLE_TIMEOUT_MS      50U
 
-#define BALL_SERVO_MIN_US          500U
-#define BALL_SERVO_MAX_US          2500U
-#define BALL_SERVO_CENTER_US       1500U
+#define BALL_SERVO_MIN_US          800U
+#define BALL_SERVO_MAX_US          2300U
+#define BALL_SERVO_CENTER_US       1730U
 
 #define BALL_MAX_TARGET_ANGLE_DEG  5.0f
-#define BALL_MAX_SERVO_DELTA_US    500.0f
+#define BALL_MAX_SERVO_DELTA_US    1230.0f
+
+/* 初始参数偏保守，现场按位置环再角度环的顺序调节。 */
+#define BALL_POSITION_KP           0.40f
+#define BALL_POSITION_KI           0.00f
+#define BALL_POSITION_KD           0.05f
+#define BALL_ANGLE_KP              60.0f
+#define BALL_ANGLE_KI              0.0f
+#define BALL_ANGLE_KD              2.0f
 
 static PID_t position_pid;
 static PID_t angle_pid;
@@ -51,10 +60,11 @@ static void BallControl_OutputCenter(void)
 
 void BallControl_Init(void)
 {
-    /* 增益先置零，避免未标定时舵机突然动作。 */
-    PID_Init(&position_pid, 0.0f, 0.0f, 0.0f,
+    PID_Init(&position_pid,
+             BALL_POSITION_KP, BALL_POSITION_KI, BALL_POSITION_KD,
              20.0f, BALL_MAX_TARGET_ANGLE_DEG);
-    PID_Init(&angle_pid, 0.0f, 0.0f, 0.0f,
+    PID_Init(&angle_pid,
+             BALL_ANGLE_KP, BALL_ANGLE_KI, BALL_ANGLE_KD,
              500.0f, BALL_MAX_SERVO_DELTA_US);
 
     target_position_cm = 0.0f;
@@ -63,7 +73,7 @@ void BallControl_Init(void)
     position_pending = 0U;
     position_valid = 0U;
     angle_valid = 0U;
-    control_enabled = 1U;
+    control_enabled = 0U;
     last_outer_time_ms = 0U;
     last_inner_time_ms = 0U;
     BallControl_OutputCenter();
@@ -143,19 +153,16 @@ void BallControl_Process(uint32_t now_ms)
 
     if ((position_valid != 0U) &&
         ((uint32_t)(now_ms - position_time_ms) <= BALL_POSITION_TIMEOUT_MS) &&
-        (position_pending != 0U))
+        (position_pending != 0U) &&
+        ((last_outer_time_ms == 0U) ||
+         ((uint32_t)(now_ms - last_outer_time_ms) >= BALL_OUTER_PERIOD_MS)))
     {
-        float outer_dt_s = BALL_DEFAULT_OUTER_DT_S;
-
-        if (last_outer_time_ms != 0U)
-        {
-            outer_dt_s = (float)(position_time_ms - last_outer_time_ms) / 1000.0f;
-        }
-        last_outer_time_ms = position_time_ms;
+        last_outer_time_ms = now_ms;
         position_pending = 0U;
+        /* 实车方向：P>0 时输出负目标角度，使钢球回到 P=0。 */
         target_angle_deg = PID_Update(&position_pid,
                                       target_position_cm - position_cm,
-                                      outer_dt_s);
+                                      BALL_OUTER_DT_S);
     }
     else if ((position_valid == 0U) ||
              ((uint32_t)(now_ms - position_time_ms) > BALL_POSITION_TIMEOUT_MS))
@@ -180,9 +187,10 @@ void BallControl_Process(uint32_t now_ms)
     }
 
     /* 目标角度在两次外环更新间保持不变，因此误差变化率取 -陀螺仪角速度。 */
+    /* 正roll表示车尾抬高；舵机脉宽减小时车尾抬高，因此减去PID输出。 */
     servo_pulse_us = BallControl_ClampPulse(
         (float)servo_center_us
-        + PID_UpdateWithRate(&angle_pid,
+        - PID_UpdateWithRate(&angle_pid,
                              target_angle_deg - pipe_angle_deg,
                              -pipe_gyro_dps,
                              BALL_INNER_DT_S));

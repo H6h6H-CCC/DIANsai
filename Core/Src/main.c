@@ -141,7 +141,7 @@ static void Main_AppInit(void)
 #endif
     /* OLED、按键和题目逻辑统一由 state 模块管理。 */
     State_Init();
-    /* PA15 舵机由 BallControl 管理，默认保持 1500 us 机械中位。 */
+    /* PA15 舵机由 BallControl 管理，默认保持 1730 us 机械中位。 */
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)

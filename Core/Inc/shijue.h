@@ -11,16 +11,13 @@ extern "C" {
 #define SHIJUE_FRAME_HEAD       0xAAU
 #define SHIJUE_FRAME_TAIL       0x77U
 
-#define SHIJUE_TYPE_ORIGIN      0x01U
 #define SHIJUE_TYPE_POSITION    0x02U
 #define SHIJUE_TYPE_VELOCITY    0x03U
 #define SHIJUE_TYPE_SET_ORIGIN  0x10U
 
 /* MaixCAM2 reports physical values in cm or cm/s. */
-extern volatile float g_shijue_origin_cm;
 extern volatile float g_shijue_position_cm;
 extern volatile float g_shijue_velocity_cm_s;
-extern volatile uint8_t g_shijue_origin_valid;
 extern volatile uint8_t g_shijue_position_valid;
 extern volatile uint8_t g_shijue_velocity_valid;
 extern volatile uint8_t g_shijue_last_type;
@@ -55,8 +52,8 @@ uint8_t Shijue_ParseFrame8(const uint8_t *frame, uint16_t len);
 void Shijue_ProcessRxBuffer(const uint8_t *buf, uint16_t len);
 void Shijue_ProcessUsbRxBuffer(const uint8_t *buf, uint16_t len);
 
-/* origin_cm is the absolute origin on the 0-25 cm tube, integer cm only. */
-uint8_t Shijue_SetOrigin(uint8_t origin_cm);
+/* 设置0.0~25.0 cm绝对原点，参数单位为0.1 cm。 */
+uint8_t Shijue_SetOriginTenthCm(uint16_t origin_tenth_cm);
 uint8_t Shijue_Send(const uint8_t *data, uint16_t len);
 
 #ifdef __cplusplus
