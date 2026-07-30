@@ -11,6 +11,7 @@
 #include "shijue.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define H2_BASE_PWM           350
@@ -24,6 +25,15 @@
 #define BALANCE_SETTLE_MS       1000U
 #define BALANCE_SAMPLE_MS       1000U
 #define BALANCE_SAMPLE_PERIOD_MS 10U
+#define BALANCE_SAMPLE_MIN_COUNT  50U
+#define BALANCE_MAX_RAW_ROLL_DEG  30.0f
+#define BALANCE_MAX_GYRO_DPS      5.0f
+#define BALANCE_MAX_ROLL_SPAN_DEG 1.0f
+#define H3_POSITIVE_TARGET_CM       5.0f
+#define H3_NEGATIVE_TARGET_CM      -5.0f
+#define H3_TARGET_TOLERANCE_CM      1.0f
+#define H3_STABLE_MS              500U
+#define H3_TIMEOUT_MS            5000U
 
 typedef enum
 {
@@ -68,9 +78,13 @@ static uint32_t balance_calibration_time_ms;
 static uint32_t balance_last_sample_time_ms;
 static float balance_roll_sum;
 static float balance_wx_sum;
+static float balance_roll_min;
+static float balance_roll_max;
 static uint16_t balance_sample_count;
 static uint32_t start_time_ms;
 static uint32_t stopped_elapsed_ms;
+static uint8_t h3_returning;
+static uint32_t h3_stable_start_ms;
 
 static uint8_t h2_marker_count;
 static uint8_t h2_marker_active;
@@ -85,12 +99,96 @@ static StatePage_t last_display_page;
 static uint32_t last_display_half_second;
 static char display_cache[4][16];
 
+static uint8_t balance_debug_buffer[220];
+static uint32_t balance_debug_time_ms;
 static uint8_t vision_debug_buffer[128];
 static uint32_t vision_debug_time_ms;
 static uint8_t imu_debug_buffer[160];
 static uint32_t imu_debug_time_ms;
 
+#define DEBUG_COMMAND_SIZE  64U
+#define DEBUG_REPLY_SIZE    160U
+static char debug_rx_build[DEBUG_COMMAND_SIZE];
+static uint8_t debug_rx_build_length;
+static char debug_command[DEBUG_COMMAND_SIZE];
+static volatile uint8_t debug_command_ready;
+static char debug_reply[DEBUG_REPLY_SIZE];
+static uint16_t debug_reply_length;
+static uint8_t debug_reply_ready;
+static volatile uint32_t debug_rx_event_count;
+static volatile uint32_t debug_rx_byte_count;
+extern volatile uint32_t g_jy61_rx_event_count;
+extern volatile uint32_t g_jy61_rx_byte_count;
+
 static void State_Start(uint32_t now_ms);
+static void State_ProcessDebugCommand(void);
+static void State_SendDebugReply(void);
+
+static const char *State_SkipSpaces(const char *text)
+{
+    while ((*text == ' ') || (*text == '\t')) text++;
+    return text;
+}
+
+static uint8_t State_ParseFloat(const char **text, float *value)
+{
+    char *end;
+    const char *start = State_SkipSpaces(*text);
+
+    *value = strtof(start, &end);
+    if (end == start) return 0U;
+    *text = end;
+    return 1U;
+}
+
+static uint8_t State_ParsePid(const char *text, float *kp, float *ki, float *kd)
+{
+    if ((State_ParseFloat(&text, kp) == 0U) ||
+        (State_ParseFloat(&text, ki) == 0U) ||
+        (State_ParseFloat(&text, kd) == 0U))
+    {
+        return 0U;
+    }
+    text = State_SkipSpaces(text);
+    return (*text == '\0') && (*kp >= 0.0f) && (*ki >= 0.0f) && (*kd >= 0.0f);
+}
+
+void State_DebugRx(const uint8_t *data, uint16_t length)
+{
+    uint16_t i;
+    uint8_t line_finished = 0U;
+
+    debug_rx_event_count++;
+    debug_rx_byte_count += length;
+
+    for (i = 0U; i < length; i++)
+    {
+        char value = (char)data[i];
+
+        if ((value == '\r') || (value == '\n'))
+        {
+            line_finished = 1U;
+            continue;
+        }
+
+        if ((value >= 32) && (value <= 126) &&
+            (debug_rx_build_length < (DEBUG_COMMAND_SIZE - 1U)))
+        {
+            debug_rx_build[debug_rx_build_length++] = value;
+        }
+    }
+
+    /* DMA 空闲事件本身也表示一次手动发送结束，因此换行可省略。 */
+    if (((line_finished != 0U) || (length != 0U)) &&
+        (debug_rx_build_length != 0U) &&
+        (debug_command_ready == 0U))
+    {
+        memcpy(debug_command, debug_rx_build, debug_rx_build_length);
+        debug_command[debug_rx_build_length] = '\0';
+        debug_command_ready = 1U;
+        debug_rx_build_length = 0U;
+    }
+}
 
 static const char *State_GetModeName(StateMode_t mode)
 {
@@ -394,6 +492,8 @@ static void State_BeginBalanceCalibration(uint32_t now_ms, uint8_t auto_start)
     balance_roll_zero_valid = 0U;
     balance_roll_sum = 0.0f;
     balance_wx_sum = 0.0f;
+    balance_roll_min = 0.0f;
+    balance_roll_max = 0.0f;
     balance_sample_count = 0U;
     balance_calibration_time_ms = now_ms;
     balance_last_sample_time_ms = now_ms;
@@ -417,6 +517,8 @@ static void State_ProcessBalanceCalibration(uint32_t now_ms)
         {
             balance_roll_sum = 0.0f;
             balance_wx_sum = 0.0f;
+            balance_roll_min = 0.0f;
+            balance_roll_max = 0.0f;
             balance_sample_count = 0U;
             balance_calibration_time_ms = now_ms;
             balance_last_sample_time_ms = now_ms;
@@ -437,14 +539,51 @@ static void State_ProcessBalanceCalibration(uint32_t now_ms)
         ((uint32_t)(now_ms - lastPacketTime) <= 50U))
     {
         balance_last_sample_time_ms = now_ms;
+
+        /* JY61P 上电初期姿态可能从错误角度收敛，必须连续稳定后才标零。 */
+        if ((sensorData.roll > BALANCE_MAX_RAW_ROLL_DEG) ||
+            (sensorData.roll < -BALANCE_MAX_RAW_ROLL_DEG) ||
+            (sensorData.wx > BALANCE_MAX_GYRO_DPS) ||
+            (sensorData.wx < -BALANCE_MAX_GYRO_DPS))
+        {
+            balance_roll_sum = 0.0f;
+            balance_wx_sum = 0.0f;
+            balance_roll_min = 0.0f;
+            balance_roll_max = 0.0f;
+            balance_sample_count = 0U;
+            balance_calibration_time_ms = now_ms;
+            return;
+        }
+
+        if (balance_sample_count == 0U)
+        {
+            balance_roll_min = sensorData.roll;
+            balance_roll_max = sensorData.roll;
+        }
+        else
+        {
+            if (sensorData.roll < balance_roll_min) balance_roll_min = sensorData.roll;
+            if (sensorData.roll > balance_roll_max) balance_roll_max = sensorData.roll;
+        }
         balance_roll_sum += sensorData.roll;
         balance_wx_sum += sensorData.wx;
         balance_sample_count++;
     }
 
-    if (((uint32_t)(now_ms - balance_calibration_time_ms) >= BALANCE_SAMPLE_MS) &&
-        (balance_sample_count > 0U))
+    if ((uint32_t)(now_ms - balance_calibration_time_ms) >= BALANCE_SAMPLE_MS)
     {
+        if ((balance_sample_count < BALANCE_SAMPLE_MIN_COUNT) ||
+            ((balance_roll_max - balance_roll_min) > BALANCE_MAX_ROLL_SPAN_DEG))
+        {
+            balance_roll_sum = 0.0f;
+            balance_wx_sum = 0.0f;
+            balance_roll_min = 0.0f;
+            balance_roll_max = 0.0f;
+            balance_sample_count = 0U;
+            balance_calibration_time_ms = now_ms;
+            return;
+        }
+
         balance_roll_zero_deg = balance_roll_sum / (float)balance_sample_count;
         balance_wx_zero_dps = balance_wx_sum / (float)balance_sample_count;
         balance_roll_zero_valid = 1U;
@@ -477,6 +616,13 @@ static void State_Start(uint32_t now_ms)
     if (current_mode == STATE_MODE_H2_CAR_LOOP)
     {
         State_H2Reset();
+    }
+    else if (current_mode == STATE_MODE_H3_BALL_MOVE)
+    {
+        h3_returning = 0U;
+        h3_stable_start_ms = 0U;
+        BallControl_SetTargetPosition(H3_POSITIVE_TARGET_CM);
+        BallControl_SetEnabled(1U);
     }
     else if ((current_mode == STATE_MODE_H5_LOOP_CENTER) ||
              (current_mode == STATE_MODE_H6_LOOP_TARGET))
@@ -583,7 +729,8 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
                 State_H2Brake();
             }
             else if ((current_mode == STATE_MODE_H5_LOOP_CENTER) ||
-                     (current_mode == STATE_MODE_H6_LOOP_TARGET))
+                     (current_mode == STATE_MODE_H6_LOOP_TARGET) ||
+                     (current_mode == STATE_MODE_H3_BALL_MOVE))
             {
                 BallControl_SetEnabled(0U);
             }
@@ -619,6 +766,7 @@ static void State_RunMode(uint32_t now_ms)
 
     case STATE_MODE_H5_LOOP_CENTER:
     case STATE_MODE_H6_LOOP_TARGET:
+    case STATE_MODE_H3_BALL_MOVE:
         if ((balance_roll_zero_valid != 0U) &&
             (angleValid != 0U) &&
             (gyroValid != 0U) &&
@@ -629,9 +777,52 @@ static void State_RunMode(uint32_t now_ms)
                                      now_ms);
         }
         BallControl_Process(now_ms);
+
+        if (current_mode != STATE_MODE_H3_BALL_MOVE)
+        {
+            break;
+        }
+
+        if ((uint32_t)(now_ms - start_time_ms) > H3_TIMEOUT_MS)
+        {
+            State_End(STATE_PAGE_TIMEOUT, now_ms);
+            break;
+        }
+
+        if ((g_shijue_position_valid == 0U) ||
+            (h3_returning == 0U &&
+             ((g_shijue_position_cm < (H3_POSITIVE_TARGET_CM - H3_TARGET_TOLERANCE_CM)) ||
+              (g_shijue_position_cm > (H3_POSITIVE_TARGET_CM + H3_TARGET_TOLERANCE_CM)))))
+        {
+            break;
+        }
+
+        if (h3_returning == 0U)
+        {
+            h3_returning = 1U;
+            h3_stable_start_ms = 0U;
+            BallControl_SetTargetPosition(H3_NEGATIVE_TARGET_CM);
+            break;
+        }
+
+        if ((g_shijue_position_cm >= (H3_NEGATIVE_TARGET_CM - H3_TARGET_TOLERANCE_CM)) &&
+            (g_shijue_position_cm <= (H3_NEGATIVE_TARGET_CM + H3_TARGET_TOLERANCE_CM)))
+        {
+            if (h3_stable_start_ms == 0U)
+            {
+                h3_stable_start_ms = now_ms;
+            }
+            else if ((uint32_t)(now_ms - h3_stable_start_ms) >= H3_STABLE_MS)
+            {
+                State_End(STATE_PAGE_FINISHED, now_ms);
+            }
+        }
+        else
+        {
+            h3_stable_start_ms = 0U;
+        }
         break;
 
-    case STATE_MODE_H3_BALL_MOVE:
     case STATE_MODE_H4_AB_BALANCE:
         /* H3-H5 先保留空实现。 */
         break;
@@ -675,6 +866,197 @@ static void State_FormatSignedCenti(char *output, size_t size, float value)
                    (centi < 0) ? '-' : '+',
                    (unsigned long)(magnitude / 100U),
                    (unsigned long)(magnitude % 100U));
+}
+
+static void State_ProcessDebugCommand(void)
+{
+    float kp, ki, kd;
+    float target;
+    float position_kp, position_ki, position_kd;
+    float angle_kp, angle_ki, angle_kd;
+    char a_kp[12], a_ki[12], a_kd[12];
+    char p_kp[12], p_ki[12], p_kd[12];
+    char target_text[12];
+    char position_target_text[12];
+    const char *text;
+    int length;
+
+    if ((debug_command_ready == 0U) || (debug_reply_ready != 0U)) return;
+
+    if ((strncmp(debug_command, "APID", 4U) == 0) &&
+        (State_ParsePid(&debug_command[4], &kp, &ki, &kd) != 0U))
+    {
+        BallControl_SetAnglePid(kp, ki, kd);
+        State_FormatSignedCenti(a_kp, sizeof(a_kp), kp);
+        State_FormatSignedCenti(a_ki, sizeof(a_ki), ki);
+        State_FormatSignedCenti(a_kd, sizeof(a_kd), kd);
+        length = snprintf(debug_reply, sizeof(debug_reply),
+                          "OK APID KP=%s KI=%s KD=%s\r\n", a_kp, a_ki, a_kd);
+    }
+    else if ((strncmp(debug_command, "PPID", 4U) == 0) &&
+             (State_ParsePid(&debug_command[4], &kp, &ki, &kd) != 0U))
+    {
+        BallControl_SetPositionPid(kp, ki, kd);
+        State_FormatSignedCenti(p_kp, sizeof(p_kp), kp);
+        State_FormatSignedCenti(p_ki, sizeof(p_ki), ki);
+        State_FormatSignedCenti(p_kd, sizeof(p_kd), kd);
+        length = snprintf(debug_reply, sizeof(debug_reply),
+                          "OK PPID KP=%s KI=%s KD=%s\r\n", p_kp, p_ki, p_kd);
+    }
+    else if (strncmp(debug_command, "ATG", 3U) == 0)
+    {
+        text = &debug_command[3];
+        if ((State_ParseFloat(&text, &target) != 0U) &&
+            (*State_SkipSpaces(text) == '\0'))
+        {
+            BallControl_SetManualTargetAngle(target);
+            State_FormatSignedCenti(target_text, sizeof(target_text),
+                                    BallControl_GetTargetAngle());
+            length = snprintf(debug_reply, sizeof(debug_reply),
+                              "OK ATG=%s\r\n", target_text);
+        }
+        else
+        {
+            length = snprintf(debug_reply, sizeof(debug_reply), "ERR ATG\r\n");
+        }
+    }
+    else if (strncmp(debug_command, "PTG", 3U) == 0)
+    {
+        text = &debug_command[3];
+        if ((State_ParseFloat(&text, &target) != 0U) &&
+            (*State_SkipSpaces(text) == '\0') &&
+            (target >= -12.5f) && (target <= 12.5f))
+        {
+            BallControl_SetAutoTargetAngle();
+            BallControl_SetTargetPosition(target);
+            State_FormatSignedCenti(position_target_text,
+                                    sizeof(position_target_text), target);
+            length = snprintf(debug_reply, sizeof(debug_reply),
+                              "OK PTG=%s\r\n", position_target_text);
+        }
+        else
+        {
+            length = snprintf(debug_reply, sizeof(debug_reply), "ERR PTG\r\n");
+        }
+    }
+    else if (strcmp(debug_command, "AUTO") == 0)
+    {
+        BallControl_SetAutoTargetAngle();
+        length = snprintf(debug_reply, sizeof(debug_reply), "OK AUTO\r\n");
+    }
+    else if (strcmp(debug_command, "ZERO") == 0)
+    {
+        State_BeginBalanceCalibration(BSP_TimeMs(), 1U);
+        length = snprintf(debug_reply, sizeof(debug_reply), "OK ZERO\r\n");
+    }
+    else if (strcmp(debug_command, "GET") == 0)
+    {
+        BallControl_GetAnglePid(&angle_kp, &angle_ki, &angle_kd);
+        BallControl_GetPositionPid(&position_kp, &position_ki, &position_kd);
+        State_FormatSignedCenti(a_kp, sizeof(a_kp), angle_kp);
+        State_FormatSignedCenti(a_ki, sizeof(a_ki), angle_ki);
+        State_FormatSignedCenti(a_kd, sizeof(a_kd), angle_kd);
+        State_FormatSignedCenti(p_kp, sizeof(p_kp), position_kp);
+        State_FormatSignedCenti(p_ki, sizeof(p_ki), position_ki);
+        State_FormatSignedCenti(p_kd, sizeof(p_kd), position_kd);
+        State_FormatSignedCenti(target_text, sizeof(target_text),
+                                BallControl_GetTargetAngle());
+        State_FormatSignedCenti(position_target_text,
+                                sizeof(position_target_text),
+                                BallControl_GetTargetPosition());
+        length = snprintf(debug_reply, sizeof(debug_reply),
+                          "GET A=%s,%s,%s P=%s,%s,%s MODE=%s ATG=%s PTG=%s\r\n",
+                          a_kp, a_ki, a_kd,
+                          p_kp, p_ki, p_kd,
+                          (BallControl_IsManualTargetAngle() != 0U) ? "MAN" : "AUTO",
+                          target_text, position_target_text);
+    }
+    else
+    {
+        length = snprintf(debug_reply, sizeof(debug_reply), "ERR CMD\r\n");
+    }
+
+    debug_command_ready = 0U;
+    if ((length > 0) && ((size_t)length < sizeof(debug_reply)))
+    {
+        debug_reply_length = (uint16_t)length;
+        debug_reply_ready = 1U;
+    }
+}
+
+static void State_SendDebugReply(void)
+{
+    if ((debug_reply_ready != 0U) &&
+        (BSP_UartTxReady(BSP_UART_2) != 0U) &&
+        (BSP_UartSendDma(BSP_UART_2,
+                         (uint8_t *)debug_reply,
+                         debug_reply_length) == BSP_STATUS_OK))
+    {
+        debug_reply_ready = 0U;
+    }
+}
+
+static void State_SendBalanceDebug(uint32_t now_ms)
+{
+    char target_angle[12];
+    char pipe_angle[12];
+    char pipe_gyro[12];
+    char raw_roll[12];
+    char roll_zero[12];
+    char position[12];
+    char velocity[12];
+    char position_error[12];
+    int length;
+
+    if ((debug_reply_ready != 0U) ||
+        ((uint32_t)(now_ms - balance_debug_time_ms) < 10U) ||
+        (BSP_UartTxReady(BSP_UART_2) == 0U))
+    {
+        return;
+    }
+
+    State_FormatSignedCenti(target_angle, sizeof(target_angle), BallControl_GetTargetAngle());
+    State_FormatSignedCenti(pipe_angle, sizeof(pipe_angle), BallControl_GetPipeAngle());
+    State_FormatSignedCenti(pipe_gyro, sizeof(pipe_gyro), BallControl_GetPipeGyro());
+    State_FormatSignedCenti(raw_roll, sizeof(raw_roll), sensorData.roll);
+    State_FormatSignedCenti(roll_zero, sizeof(roll_zero), balance_roll_zero_deg);
+    State_FormatSignedCenti(position, sizeof(position), g_shijue_position_cm);
+    State_FormatSignedCenti(velocity, sizeof(velocity), g_shijue_velocity_cm_s);
+    State_FormatSignedCenti(position_error, sizeof(position_error),
+                            BallControl_GetTargetPosition() - BallControl_GetPosition());
+
+    /* 100 Hz 输出角度内环关键量，便于直接观察阶跃响应。 */
+    length = snprintf((char *)balance_debug_buffer,
+                      sizeof(balance_debug_buffer),
+                      "CTRL T=%lu P=%s PV=%u VEL=%s VV=%u PE=%s VC=%u TG=%s ANG=%s W=%s PWM=%u RAW=%s Z=%s IV=%u%u AGE=%lu JRX=%lu/%lu RX=%lu/%lu\r\n",
+                      (unsigned long)now_ms,
+                      position,
+                      (unsigned int)g_shijue_position_valid,
+                      velocity,
+                      (unsigned int)g_shijue_velocity_valid,
+                      position_error,
+                      (unsigned int)g_shijue_count,
+                      target_angle,
+                      pipe_angle,
+                      pipe_gyro,
+                      (unsigned int)BallControl_GetServoPulse(),
+                      raw_roll,
+                      roll_zero,
+                      (unsigned int)angleValid,
+                      (unsigned int)gyroValid,
+                      (unsigned long)(now_ms - lastPacketTime),
+                      (unsigned long)g_jy61_rx_event_count,
+                      (unsigned long)g_jy61_rx_byte_count,
+                      (unsigned long)debug_rx_event_count,
+                      (unsigned long)debug_rx_byte_count);
+
+    if ((length > 0) && ((size_t)length < sizeof(balance_debug_buffer)) &&
+        (BSP_UartSendDma(BSP_UART_2,
+                         balance_debug_buffer,
+                         (uint16_t)length) == BSP_STATUS_OK))
+    {
+        balance_debug_time_ms = now_ms;
+    }
 }
 
 static void State_SendVisionDebug(uint32_t now_ms)
@@ -793,9 +1175,9 @@ void State_Init(void)
     OLED_Init();
 
     /* 调试阶段上电先校准，再自动进入H5中心稳球。 */
-    current_mode = STATE_MODE_H5_LOOP_CENTER;
+    current_mode = STATE_MODE_H3_BALL_MOVE;
     current_page = STATE_PAGE_READY;
-    selected_item = 5U;
+    selected_item = 3U;
     target_tenth_cm = 0;
     h6_target_send_pending = 0U;
     balance_roll_zero_deg = 0.0f;
@@ -805,8 +1187,11 @@ void State_Init(void)
     balance_calibration_auto_start = 0U;
     start_time_ms = 0U;
     stopped_elapsed_ms = 0U;
+    h3_returning = 0U;
+    h3_stable_start_ms = 0U;
     vision_debug_time_ms = now_ms;
     imu_debug_time_ms = now_ms;
+    balance_debug_time_ms = now_ms;
     last_display_half_second = 0xFFFFFFFFU;
     last_display_page = STATE_PAGE_SELECT;
     memset(display_cache, 0, sizeof(display_cache));
@@ -823,12 +1208,30 @@ void State_RunCurrent(void)
     KeyEvent_t key = BSP_KeyScan(now_ms);
 
     State_HandleKey(key, now_ms);
+    State_ProcessDebugCommand();
+    State_SendDebugReply();
     State_SendH6Target();
     State_ProcessBalanceCalibration(now_ms);
 
     if (current_page == STATE_PAGE_RUNNING)
     {
         State_RunMode(now_ms);
+    }
+    else if ((current_mode == STATE_MODE_H3_BALL_MOVE) &&
+             ((current_page == STATE_PAGE_FINISHED) ||
+              (current_page == STATE_PAGE_TIMEOUT)))
+    {
+        /* H3结束后继续闭环，使小球保持在-5 cm，而不是冻结最后一次舵机输出。 */
+        if ((balance_roll_zero_valid != 0U) &&
+            (angleValid != 0U) &&
+            (gyroValid != 0U) &&
+            ((uint32_t)(now_ms - lastPacketTime) <= 50U))
+        {
+            BallControl_SetPipeAngle(sensorData.roll - balance_roll_zero_deg,
+                                     sensorData.wx - balance_wx_zero_dps,
+                                     now_ms);
+        }
+        BallControl_Process(now_ms);
     }
     else if ((current_mode == STATE_MODE_H2_CAR_LOOP) &&
              ((current_page == STATE_PAGE_STOPPED) ||
@@ -837,7 +1240,7 @@ void State_RunCurrent(void)
         State_H2Brake();
     }
 
-    State_SendVisionDebug(now_ms);
+    State_SendBalanceDebug(now_ms);
     /* 陀螺仪解析回传先保留，后续需要时取消注释即可。 */
     // State_SendImuDebug(now_ms);
     State_UpdateDisplay(now_ms);

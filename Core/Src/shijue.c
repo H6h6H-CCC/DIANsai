@@ -101,6 +101,11 @@ uint8_t Shijue_ParseFrame8(const uint8_t *frame, uint16_t len)
                 value = 0.0f;
             }
             g_shijue_velocity_cm_s = value;
+            BallControl_SetVelocity(value, BSP_TimeMs());
+        }
+        else
+        {
+            BallControl_InvalidateVelocity();
         }
         break;
 

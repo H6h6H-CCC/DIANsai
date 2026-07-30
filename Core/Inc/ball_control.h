@@ -10,11 +10,18 @@ void BallControl_SetTargetPosition(float target_cm);
 void BallControl_SetServoCenter(uint16_t center_us);
 void BallControl_SetPositionPid(float kp, float ki, float kd);
 void BallControl_SetAnglePid(float kp, float ki, float kd);
+void BallControl_GetPositionPid(float *kp, float *ki, float *kd);
+void BallControl_GetAnglePid(float *kp, float *ki, float *kd);
+void BallControl_SetManualTargetAngle(float target_deg);
+void BallControl_SetAutoTargetAngle(void);
+uint8_t BallControl_IsManualTargetAngle(void);
 
 /* 视觉完成像素到厘米换算后，通过此接口送入钢球位置。 */
 void BallControl_SetPosition(float position_cm, uint32_t timestamp_ms);
 /* 视觉上报 STATUS=0 时立即停用上一帧位置，避免继续使用失效测量。 */
 void BallControl_InvalidatePosition(void);
+void BallControl_SetVelocity(float velocity_cm_s, uint32_t timestamp_ms);
+void BallControl_InvalidateVelocity(void);
 
 /* JY61P 轴向和零点标定完成后，通过此接口送入摆杆角度和角速度。 */
 void BallControl_SetPipeAngle(float angle_deg,
@@ -25,6 +32,10 @@ void BallControl_SetPipeAngle(float angle_deg,
 void BallControl_Process(uint32_t now_ms);
 
 float BallControl_GetTargetAngle(void);
+float BallControl_GetTargetPosition(void);
+float BallControl_GetPosition(void);
+float BallControl_GetPipeAngle(void);
+float BallControl_GetPipeGyro(void);
 uint16_t BallControl_GetServoPulse(void);
 
 #endif /* BALL_CONTROL_H */

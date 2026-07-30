@@ -15,26 +15,32 @@
 #define BALL_SERVO_CENTER_US       1730U
 
 #define BALL_MAX_TARGET_ANGLE_DEG  5.0f
+#define BALL_MAX_SAFE_ANGLE_DEG    15.0f
 #define BALL_MAX_SERVO_DELTA_US    1230.0f
+#define BALL_POSITION_I_LIMIT      4.0f
 
 /* 初始参数偏保守，现场按位置环再角度环的顺序调节。 */
-#define BALL_POSITION_KP           0.40f
-#define BALL_POSITION_KI           0.00f
-#define BALL_POSITION_KD           0.05f
-#define BALL_ANGLE_KP              60.0f
-#define BALL_ANGLE_KI              0.0f
-#define BALL_ANGLE_KD              2.0f
+#define BALL_POSITION_KP           0.50f
+#define BALL_POSITION_KI           0.20f
+#define BALL_POSITION_KD           0.45f
+/* Tuned on the 100 Hz JY61P data stream to avoid servo-linkage oscillation. */
+#define BALL_ANGLE_KP              100.0f
+#define BALL_ANGLE_KI              100.0f
+#define BALL_ANGLE_KD              0.5f
 
 static PID_t position_pid;
 static PID_t angle_pid;
 
 static volatile float position_cm;
+static volatile float position_velocity_cm_s;
 static volatile float pipe_angle_deg;
 static volatile float pipe_gyro_dps;
 static volatile uint32_t position_time_ms;
+static volatile uint32_t velocity_time_ms;
 static volatile uint32_t angle_time_ms;
 static volatile uint8_t position_pending;
 static volatile uint8_t position_valid;
+static volatile uint8_t velocity_valid;
 static volatile uint8_t angle_valid;
 
 static float target_position_cm;
@@ -44,6 +50,8 @@ static uint32_t last_inner_time_ms;
 static uint16_t servo_center_us;
 static uint16_t servo_pulse_us;
 static uint8_t control_enabled;
+static uint8_t manual_target_enabled;
+static float manual_target_angle_deg;
 
 static uint16_t BallControl_ClampPulse(float pulse_us)
 {
@@ -62,7 +70,7 @@ void BallControl_Init(void)
 {
     PID_Init(&position_pid,
              BALL_POSITION_KP, BALL_POSITION_KI, BALL_POSITION_KD,
-             20.0f, BALL_MAX_TARGET_ANGLE_DEG);
+             BALL_POSITION_I_LIMIT, BALL_MAX_TARGET_ANGLE_DEG);
     PID_Init(&angle_pid,
              BALL_ANGLE_KP, BALL_ANGLE_KI, BALL_ANGLE_KD,
              500.0f, BALL_MAX_SERVO_DELTA_US);
@@ -72,8 +80,11 @@ void BallControl_Init(void)
     servo_center_us = BALL_SERVO_CENTER_US;
     position_pending = 0U;
     position_valid = 0U;
+    velocity_valid = 0U;
     angle_valid = 0U;
     control_enabled = 0U;
+    manual_target_enabled = 0U;
+    manual_target_angle_deg = 0.0f;
     last_outer_time_ms = 0U;
     last_inner_time_ms = 0U;
     BallControl_OutputCenter();
@@ -118,6 +129,44 @@ void BallControl_SetAnglePid(float kp, float ki, float kd)
     PID_Reset(&angle_pid);
 }
 
+void BallControl_GetPositionPid(float *kp, float *ki, float *kd)
+{
+    if (kp != 0) *kp = position_pid.kp;
+    if (ki != 0) *ki = position_pid.ki;
+    if (kd != 0) *kd = position_pid.kd;
+}
+
+void BallControl_GetAnglePid(float *kp, float *ki, float *kd)
+{
+    if (kp != 0) *kp = angle_pid.kp;
+    if (ki != 0) *ki = angle_pid.ki;
+    if (kd != 0) *kd = angle_pid.kd;
+}
+
+void BallControl_SetManualTargetAngle(float target_deg)
+{
+    if (target_deg > BALL_MAX_TARGET_ANGLE_DEG) target_deg = BALL_MAX_TARGET_ANGLE_DEG;
+    if (target_deg < -BALL_MAX_TARGET_ANGLE_DEG) target_deg = -BALL_MAX_TARGET_ANGLE_DEG;
+
+    manual_target_angle_deg = target_deg;
+    manual_target_enabled = 1U;
+    target_angle_deg = target_deg;
+    PID_Reset(&angle_pid);
+}
+
+void BallControl_SetAutoTargetAngle(void)
+{
+    manual_target_enabled = 0U;
+    target_angle_deg = 0.0f;
+    PID_Reset(&position_pid);
+    PID_Reset(&angle_pid);
+}
+
+uint8_t BallControl_IsManualTargetAngle(void)
+{
+    return manual_target_enabled;
+}
+
 void BallControl_SetPosition(float new_position_cm, uint32_t timestamp_ms)
 {
     position_cm = new_position_cm;
@@ -130,6 +179,18 @@ void BallControl_InvalidatePosition(void)
 {
     position_valid = 0U;
     position_pending = 0U;
+}
+
+void BallControl_SetVelocity(float velocity_cm_s, uint32_t timestamp_ms)
+{
+    position_velocity_cm_s = velocity_cm_s;
+    velocity_time_ms = timestamp_ms;
+    velocity_valid = 1U;
+}
+
+void BallControl_InvalidateVelocity(void)
+{
+    velocity_valid = 0U;
 }
 
 void BallControl_SetPipeAngle(float angle_deg,
@@ -151,24 +212,51 @@ void BallControl_Process(uint32_t now_ms)
         return;
     }
 
-    if ((position_valid != 0U) &&
+    if ((manual_target_enabled == 0U) &&
+        (position_valid != 0U) &&
         ((uint32_t)(now_ms - position_time_ms) <= BALL_POSITION_TIMEOUT_MS) &&
         (position_pending != 0U) &&
         ((last_outer_time_ms == 0U) ||
          ((uint32_t)(now_ms - last_outer_time_ms) >= BALL_OUTER_PERIOD_MS)))
     {
+        float position_error = target_position_cm - position_cm;
+
         last_outer_time_ms = now_ms;
         position_pending = 0U;
+        /* Do not carry static-friction compensation through the target. */
+        if ((position_pid.has_last_error != 0U) &&
+            ((position_error * position_pid.last_error) < 0.0f))
+        {
+            PID_Reset(&position_pid);
+        }
         /* 实车方向：P>0 时输出负目标角度，使钢球回到 P=0。 */
-        target_angle_deg = PID_Update(&position_pid,
-                                      target_position_cm - position_cm,
-                                      BALL_OUTER_DT_S);
+        if ((velocity_valid != 0U) &&
+            ((uint32_t)(now_ms - velocity_time_ms) <= BALL_POSITION_TIMEOUT_MS))
+        {
+            /* Vision velocity has the same sign as d(position error)/dt. */
+            target_angle_deg = PID_UpdateWithRate(&position_pid,
+                                                   position_error,
+                                                   position_velocity_cm_s,
+                                                   BALL_OUTER_DT_S);
+        }
+        else
+        {
+            target_angle_deg = PID_Update(&position_pid,
+                                          position_error,
+                                          BALL_OUTER_DT_S);
+        }
     }
-    else if ((position_valid == 0U) ||
-             ((uint32_t)(now_ms - position_time_ms) > BALL_POSITION_TIMEOUT_MS))
+    else if ((manual_target_enabled == 0U) &&
+             ((position_valid == 0U) ||
+              ((uint32_t)(now_ms - position_time_ms) > BALL_POSITION_TIMEOUT_MS)))
     {
         target_angle_deg = 0.0f;
         PID_Reset(&position_pid);
+    }
+
+    if (manual_target_enabled != 0U)
+    {
+        target_angle_deg = manual_target_angle_deg;
     }
 
     elapsed_ms = (uint32_t)(now_ms - last_inner_time_ms);
@@ -180,6 +268,15 @@ void BallControl_Process(uint32_t now_ms)
 
     if ((angle_valid == 0U) ||
         ((uint32_t)(now_ms - angle_time_ms) > BALL_ANGLE_TIMEOUT_MS))
+    {
+        PID_Reset(&angle_pid);
+        BallControl_OutputCenter();
+        return;
+    }
+
+    /* 调参保护：角度明显异常时立即回机械中位，避免舵机持续顶死。 */
+    if ((pipe_angle_deg > BALL_MAX_SAFE_ANGLE_DEG) ||
+        (pipe_angle_deg < -BALL_MAX_SAFE_ANGLE_DEG))
     {
         PID_Reset(&angle_pid);
         BallControl_OutputCenter();
@@ -200,6 +297,26 @@ void BallControl_Process(uint32_t now_ms)
 float BallControl_GetTargetAngle(void)
 {
     return target_angle_deg;
+}
+
+float BallControl_GetTargetPosition(void)
+{
+    return target_position_cm;
+}
+
+float BallControl_GetPosition(void)
+{
+    return position_cm;
+}
+
+float BallControl_GetPipeAngle(void)
+{
+    return pipe_angle_deg;
+}
+
+float BallControl_GetPipeGyro(void)
+{
+    return pipe_gyro_dps;
 }
 
 uint16_t BallControl_GetServoPulse(void)

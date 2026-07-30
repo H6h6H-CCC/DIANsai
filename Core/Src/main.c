@@ -78,6 +78,8 @@ uint8_t rxBuffer5[256];
 uint8_t rxBuffer2[256];
 uint8_t rxBuffer3[256];
 volatile uint16_t g_rx2_size = 0U;
+volatile uint32_t g_jy61_rx_event_count = 0U;
+volatile uint32_t g_jy61_rx_byte_count = 0U;
 uint8_t shijue[10];
 char displayBuffer[20];
 uint16_t atk_id = 0;
@@ -117,7 +119,15 @@ static void Main_AppInit(void)
     atk_last_err = ATK_MS53L0M_ERROR;
 
 #if APP_UART4_MODE == APP_UART4_MODE_JY61P
-    JY61P_InitConfig();
+    /* Recover the required packet types first, then switch to 100 Hz. */
+    JY61P_Unlock();
+    BSP_DelayMs(200U);
+    JY61P_WriteRegister(0x02U, 0x000EU);
+    BSP_DelayMs(200U);
+    JY61P_WriteRegister(0x03U, 0x09);
+    BSP_DelayMs(200U);
+    JY61P_Save();
+    BSP_DelayMs(200U);
 #endif
 
 #if APP_TIM1_MODE == APP_TIM1_MODE_MOTER
@@ -150,6 +160,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     {
 #if APP_UART4_MODE == APP_UART4_MODE_JY61P
       uint16_t i;
+      g_jy61_rx_event_count++;
+      g_jy61_rx_byte_count += Size;
       for (i = 0U; i < Size; i++)
       {
         ProcessReceivedData(rxBuffer4[i]);
@@ -174,6 +186,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
         g_rx2_size = Size;
 #if APP_USART2_MODE == APP_USART2_MODE_ATK_TOF
         atk_ms53l0m_uart_rx_event(rxBuffer2, Size);
+#else
+        State_DebugRx(rxBuffer2, Size);
 #endif
         (void)BSP_UartStartReceiveToIdleDma(BSP_UART_2,
                                             rxBuffer2,
