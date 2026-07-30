@@ -33,7 +33,14 @@
 #define H3_NEGATIVE_TARGET_CM      -5.0f
 #define H3_TARGET_TOLERANCE_CM      1.0f
 #define H3_STABLE_MS              500U
+#define H3_STABLE_RANGE_CM           0.5f
+#define H3_FINISH_TOLERANCE_CM        0.4f
+#define H3_CENTER_TOLERANCE_CM       1.0f
+#define H3_CENTER_STABLE_MS         500U
 #define H3_TIMEOUT_MS            5000U
+#define H3_BRAKE_START_CM           -1.0f
+#define H3_FAST_KD                    0.45f
+#define H3_BRAKE_KD                   0.65f
 
 typedef enum
 {
@@ -83,8 +90,13 @@ static float balance_roll_max;
 static uint16_t balance_sample_count;
 static uint32_t start_time_ms;
 static uint32_t stopped_elapsed_ms;
+static uint8_t h3_centering;
 static uint8_t h3_returning;
+static uint8_t h3_braking;
 static uint32_t h3_stable_start_ms;
+static float h3_turn_position_cm;
+static float h3_stable_min_cm;
+static float h3_stable_max_cm;
 
 static uint8_t h2_marker_count;
 static uint8_t h2_marker_active;
@@ -478,6 +490,12 @@ static void State_End(StatePage_t page, uint32_t now_ms)
     {
         stopped_elapsed_ms = now_ms - start_time_ms;
         current_page = page;
+        if ((current_mode == STATE_MODE_H3_BALL_MOVE) &&
+            ((page == STATE_PAGE_FINISHED) || (page == STATE_PAGE_TIMEOUT)))
+        {
+            /* H3结束后退出闭环并回机械中位，避免位置环继续驱动造成震荡。 */
+            BallControl_SetEnabled(0U);
+        }
         display_dirty = 1U;
     }
 }
@@ -619,14 +637,22 @@ static void State_Start(uint32_t now_ms)
     }
     else if (current_mode == STATE_MODE_H3_BALL_MOVE)
     {
+        h3_centering = 1U;
         h3_returning = 0U;
+        h3_braking = 0U;
         h3_stable_start_ms = 0U;
-        BallControl_SetTargetPosition(H3_POSITIVE_TARGET_CM);
+        h3_turn_position_cm = 0.0f;
+        h3_stable_min_cm = 0.0f;
+        h3_stable_max_cm = 0.0f;
+        /* 先回到中心并稳定，再从0开始计入题目要求的5秒。 */
+        BallControl_SetPositionPid(0.50f, 0.20f, H3_FAST_KD);
+        BallControl_SetTargetPosition(0.0f);
         BallControl_SetEnabled(1U);
     }
     else if ((current_mode == STATE_MODE_H5_LOOP_CENTER) ||
              (current_mode == STATE_MODE_H6_LOOP_TARGET))
     {
+        BallControl_SetPositionPid(0.50f, 0.20f, H3_FAST_KD);
         BallControl_SetTargetPosition(0.0f);
         BallControl_SetEnabled(1U);
     }
@@ -783,6 +809,31 @@ static void State_RunMode(uint32_t now_ms)
             break;
         }
 
+        if (h3_centering != 0U)
+        {
+            if ((g_shijue_position_valid != 0U) &&
+                (g_shijue_position_cm >= -H3_CENTER_TOLERANCE_CM) &&
+                (g_shijue_position_cm <= H3_CENTER_TOLERANCE_CM))
+            {
+                if (h3_stable_start_ms == 0U)
+                {
+                    h3_stable_start_ms = now_ms;
+                }
+                else if ((uint32_t)(now_ms - h3_stable_start_ms) >= H3_CENTER_STABLE_MS)
+                {
+                    h3_centering = 0U;
+                    h3_stable_start_ms = 0U;
+                    start_time_ms = now_ms;
+                    BallControl_SetTargetPosition(H3_POSITIVE_TARGET_CM);
+                }
+            }
+            else
+            {
+                h3_stable_start_ms = 0U;
+            }
+            break;
+        }
+
         if ((uint32_t)(now_ms - start_time_ms) > H3_TIMEOUT_MS)
         {
             State_End(STATE_PAGE_TIMEOUT, now_ms);
@@ -801,20 +852,52 @@ static void State_RunMode(uint32_t now_ms)
         {
             h3_returning = 1U;
             h3_stable_start_ms = 0U;
+            h3_turn_position_cm = g_shijue_position_cm;
             BallControl_SetTargetPosition(H3_NEGATIVE_TARGET_CM);
             break;
         }
 
-        if ((g_shijue_position_cm >= (H3_NEGATIVE_TARGET_CM - H3_TARGET_TOLERANCE_CM)) &&
-            (g_shijue_position_cm <= (H3_NEGATIVE_TARGET_CM + H3_TARGET_TOLERANCE_CM)))
+        if ((h3_braking == 0U) &&
+            (g_shijue_position_cm <= H3_BRAKE_START_CM))
+        {
+            /* 折返后接近-5 cm再增强速度反馈，兼顾运行时间和制动。 */
+            h3_braking = 1U;
+            BallControl_SetPositionPid(0.50f, 0.20f, H3_BRAKE_KD);
+        }
+
+        if ((g_shijue_position_cm >= (H3_NEGATIVE_TARGET_CM - H3_FINISH_TOLERANCE_CM)) &&
+            (g_shijue_position_cm <= (H3_NEGATIVE_TARGET_CM + H3_FINISH_TOLERANCE_CM)))
         {
             if (h3_stable_start_ms == 0U)
             {
                 h3_stable_start_ms = now_ms;
+                h3_stable_min_cm = g_shijue_position_cm;
+                h3_stable_max_cm = g_shijue_position_cm;
             }
-            else if ((uint32_t)(now_ms - h3_stable_start_ms) >= H3_STABLE_MS)
+            else
             {
-                State_End(STATE_PAGE_FINISHED, now_ms);
+                if (g_shijue_position_cm < h3_stable_min_cm)
+                {
+                    h3_stable_min_cm = g_shijue_position_cm;
+                }
+                if (g_shijue_position_cm > h3_stable_max_cm)
+                {
+                    h3_stable_max_cm = g_shijue_position_cm;
+                }
+                if ((uint32_t)(now_ms - h3_stable_start_ms) >= H3_STABLE_MS)
+                {
+                    if ((h3_stable_max_cm - h3_stable_min_cm) <= H3_STABLE_RANGE_CM)
+                    {
+                        State_End(STATE_PAGE_FINISHED, now_ms);
+                    }
+                    else
+                    {
+                        /* 穿越目标区不算稳定，从当前位置重新统计500 ms。 */
+                        h3_stable_start_ms = now_ms;
+                        h3_stable_min_cm = g_shijue_position_cm;
+                        h3_stable_max_cm = g_shijue_position_cm;
+                    }
+                }
             }
         }
         else
@@ -1004,12 +1087,16 @@ static void State_SendBalanceDebug(uint32_t now_ms)
     char raw_roll[12];
     char roll_zero[12];
     char position[12];
+    char target_position[12];
     char velocity[12];
     char position_error[12];
+    char h3_turn_position[12];
+    char h3_stable_min[12];
+    char h3_stable_max[12];
     int length;
 
     if ((debug_reply_ready != 0U) ||
-        ((uint32_t)(now_ms - balance_debug_time_ms) < 10U) ||
+        ((uint32_t)(now_ms - balance_debug_time_ms) < 50U) ||
         (BSP_UartTxReady(BSP_UART_2) == 0U))
     {
         return;
@@ -1021,16 +1108,54 @@ static void State_SendBalanceDebug(uint32_t now_ms)
     State_FormatSignedCenti(raw_roll, sizeof(raw_roll), sensorData.roll);
     State_FormatSignedCenti(roll_zero, sizeof(roll_zero), balance_roll_zero_deg);
     State_FormatSignedCenti(position, sizeof(position), g_shijue_position_cm);
+    State_FormatSignedCenti(target_position, sizeof(target_position),
+                            BallControl_GetTargetPosition());
     State_FormatSignedCenti(velocity, sizeof(velocity), g_shijue_velocity_cm_s);
     State_FormatSignedCenti(position_error, sizeof(position_error),
                             BallControl_GetTargetPosition() - BallControl_GetPosition());
 
-    /* 100 Hz 输出角度内环关键量，便于直接观察阶跃响应。 */
+    if (current_mode == STATE_MODE_H3_BALL_MOVE)
+    {
+        const char *phase;
+
+        if (current_page == STATE_PAGE_FINISHED) phase = "DONE";
+        else if (current_page == STATE_PAGE_TIMEOUT) phase = "TIMEOUT";
+        else if (current_page != STATE_PAGE_RUNNING) phase = "READY";
+        else if (h3_centering != 0U) phase = "CENTER";
+        else if (h3_returning == 0U) phase = "PLUS";
+        else phase = "MINUS";
+
+        State_FormatSignedCenti(h3_turn_position, sizeof(h3_turn_position),
+                                h3_turn_position_cm);
+        State_FormatSignedCenti(h3_stable_min, sizeof(h3_stable_min),
+                                h3_stable_min_cm);
+        State_FormatSignedCenti(h3_stable_max, sizeof(h3_stable_max),
+                                h3_stable_max_cm);
+        length = snprintf((char *)balance_debug_buffer,
+                          sizeof(balance_debug_buffer),
+                          "H3 T=%lu E=%lu S=%s TP=%s P=%s V=%s TURN=%s RANGE=%s,%s\r\n",
+                          (unsigned long)now_ms,
+                          (unsigned long)((h3_centering != 0U) ? 0U :
+                                          ((current_page == STATE_PAGE_RUNNING) ?
+                                           (now_ms - start_time_ms) :
+                                           stopped_elapsed_ms)),
+                          phase,
+                          target_position,
+                          position,
+                          velocity,
+                          h3_turn_position,
+                          h3_stable_min,
+                          h3_stable_max);
+    }
+    else
+    {
+    /* 20 Hz遥测匹配115200串口带宽；控制内环仍保持100 Hz。 */
     length = snprintf((char *)balance_debug_buffer,
                       sizeof(balance_debug_buffer),
-                      "CTRL T=%lu P=%s PV=%u VEL=%s VV=%u PE=%s VC=%u TG=%s ANG=%s W=%s PWM=%u RAW=%s Z=%s IV=%u%u AGE=%lu JRX=%lu/%lu RX=%lu/%lu\r\n",
+                      "CTRL T=%lu P=%s TP=%s PV=%u VEL=%s VV=%u PE=%s VC=%u TG=%s ANG=%s W=%s PWM=%u RAW=%s Z=%s IV=%u%u AGE=%lu JRX=%lu/%lu RX=%lu/%lu\r\n",
                       (unsigned long)now_ms,
                       position,
+                      target_position,
                       (unsigned int)g_shijue_position_valid,
                       velocity,
                       (unsigned int)g_shijue_velocity_valid,
@@ -1049,6 +1174,7 @@ static void State_SendBalanceDebug(uint32_t now_ms)
                       (unsigned long)g_jy61_rx_byte_count,
                       (unsigned long)debug_rx_event_count,
                       (unsigned long)debug_rx_byte_count);
+    }
 
     if ((length > 0) && ((size_t)length < sizeof(balance_debug_buffer)) &&
         (BSP_UartSendDma(BSP_UART_2,
@@ -1187,8 +1313,13 @@ void State_Init(void)
     balance_calibration_auto_start = 0U;
     start_time_ms = 0U;
     stopped_elapsed_ms = 0U;
+    h3_centering = 0U;
     h3_returning = 0U;
+    h3_braking = 0U;
     h3_stable_start_ms = 0U;
+    h3_turn_position_cm = 0.0f;
+    h3_stable_min_cm = 0.0f;
+    h3_stable_max_cm = 0.0f;
     vision_debug_time_ms = now_ms;
     imu_debug_time_ms = now_ms;
     balance_debug_time_ms = now_ms;
@@ -1216,22 +1347,6 @@ void State_RunCurrent(void)
     if (current_page == STATE_PAGE_RUNNING)
     {
         State_RunMode(now_ms);
-    }
-    else if ((current_mode == STATE_MODE_H3_BALL_MOVE) &&
-             ((current_page == STATE_PAGE_FINISHED) ||
-              (current_page == STATE_PAGE_TIMEOUT)))
-    {
-        /* H3结束后继续闭环，使小球保持在-5 cm，而不是冻结最后一次舵机输出。 */
-        if ((balance_roll_zero_valid != 0U) &&
-            (angleValid != 0U) &&
-            (gyroValid != 0U) &&
-            ((uint32_t)(now_ms - lastPacketTime) <= 50U))
-        {
-            BallControl_SetPipeAngle(sensorData.roll - balance_roll_zero_deg,
-                                     sensorData.wx - balance_wx_zero_dps,
-                                     now_ms);
-        }
-        BallControl_Process(now_ms);
     }
     else if ((current_mode == STATE_MODE_H2_CAR_LOOP) &&
              ((current_page == STATE_PAGE_STOPPED) ||
