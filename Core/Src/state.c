@@ -36,9 +36,17 @@
 #define H5_BASE_PWM           220
 #define H5_TRACK_KP           8
 #define H5_RAMP_UP_MS         2000U
+#define H5_LIFT_START_PWM     80
 #define H5_STOP_RAMP_MS       3000U
 #define H5_MARKER_BLACK_COUNT 4U
+#define H5_RAMP_FF_DEG        -0.80f
+#define H5_RAMP_FF_IN_MS       300U
+#define H5_RAMP_FF_OUT_MS      500U
+#define H5_STOP_FF_DEG         0.30f
+#define H5_STOP_FF_IN_MS       200U
+#define H5_STOP_FF_OUT_MS      600U
 #define START_DELAY_MS        500U
+#define BALANCE_START_ENCODER_COUNT 10L
 #define BALANCE_SERVO_CENTER_US 1730U
 #define BALANCE_SETTLE_MS       1000U
 #define BALANCE_SAMPLE_MS       1000U
@@ -73,9 +81,9 @@
 #define H4_ANGLE_KI                  100.0f
 #define H4_ANGLE_KD                    0.5f
 
-#define H5_POSITION_KP                 0.50f
-#define H5_POSITION_KI                 0.20f
-#define H5_POSITION_KD                 0.45f
+#define H5_POSITION_KP                 0.60f  /* 实测回退值，兼顾纠偏速度和超调。 */
+#define H5_POSITION_KI                 0.30f
+#define H5_POSITION_KD                 0.70f  /* 实测综合最优，兼顾峰值和回正速度。 */
 #define H5_ANGLE_KP                  100.0f
 #define H5_ANGLE_KI                  100.0f
 #define H5_ANGLE_KD                    0.5f
@@ -160,6 +168,9 @@ static uint32_t h4_stable_start_ms;
 static float h4_stable_min_cm;
 static float h4_stable_max_cm;
 static uint8_t h4_flat_done;
+static uint8_t h4_balance_started;
+static int32_t h4_start_encoder3;
+static int32_t h4_start_encoder4;
 static int16_t h5_drive_pwm;
 static int16_t h5_stop_start_pwm;
 static const char *h5_drive_phase;
@@ -169,6 +180,14 @@ static uint8_t h5_black_count;
 static uint8_t h5_gray;
 static const char *h5_bend_state;
 static uint32_t h5_stop_start_ms;
+static uint32_t h5_stable_start_ms;
+static float h5_stable_min_cm;
+static float h5_stable_max_cm;
+static uint8_t h5_flat_done;
+static uint8_t h5_balance_started;
+static uint32_t h5_balance_start_ms;
+static int32_t h5_start_encoder3;
+static int32_t h5_start_encoder4;
 
 static uint8_t display_dirty;
 static StatePage_t last_display_page;
@@ -185,7 +204,7 @@ static uint8_t encoder_total_buffer[80];
 static uint32_t encoder_total_time_ms;
 static uint8_t h4_debug_buffer[256];
 static uint32_t h4_debug_time_ms;
-static uint8_t h5_debug_buffer[224];
+static uint8_t h5_debug_buffer[320];
 static uint32_t h5_debug_time_ms;
 
 #define DEBUG_COMMAND_SIZE  64U
@@ -713,6 +732,9 @@ static uint8_t State_H5Run(uint32_t now_ms)
             h5_drive_pwm = 0;
             h5_drive_phase = "DONE";
             h5_stop_locked = 1U;
+            /* 缓停前馈撤销时清空位置环积分，避免旧补偿继续推球。 */
+            BallControl_SetAngleFeedforward(0.0f);
+            BallControl_SetTargetPosition(0.0f);
             State_H2Brake();
             return 0U;
         }
@@ -731,6 +753,65 @@ static uint8_t State_H5Run(uint32_t now_ms)
     Moter_A(-h5_drive_pwm - turn);
     Moter_B(-h5_drive_pwm + turn);
     return first_marker;
+}
+
+static void State_H5FinishBalance(uint32_t now_ms)
+{
+    float position;
+
+    if (h5_stop_locked == 0U)
+    {
+        return;
+    }
+
+    State_H2Brake();
+    if (h5_flat_done != 0U)
+    {
+        return;
+    }
+
+    if (g_shijue_position_valid == 0U)
+    {
+        h5_stable_start_ms = 0U;
+        return;
+    }
+
+    position = g_shijue_position_cm;
+    if ((position < -H3_FINISH_TOLERANCE_CM) ||
+        (position > H3_FINISH_TOLERANCE_CM))
+    {
+        h5_stable_start_ms = 0U;
+        return;
+    }
+
+    if (h5_stable_start_ms == 0U)
+    {
+        h5_stable_start_ms = now_ms;
+        h5_stable_min_cm = position;
+        h5_stable_max_cm = position;
+        return;
+    }
+
+    if (position < h5_stable_min_cm) h5_stable_min_cm = position;
+    if (position > h5_stable_max_cm) h5_stable_max_cm = position;
+    if ((uint32_t)(now_ms - h5_stable_start_ms) < H3_STABLE_MS)
+    {
+        return;
+    }
+
+    if ((h5_stable_max_cm - h5_stable_min_cm) <= H3_STABLE_RANGE_CM)
+    {
+        /* 停车且小球稳定后关闭闭环，舵机自动回到1730us水平位。 */
+        h5_flat_done = 1U;
+        BallControl_SetAngleFeedforward(0.0f);
+        BallControl_SetEnabled(0U);
+    }
+    else
+    {
+        h5_stable_start_ms = now_ms;
+        h5_stable_min_cm = position;
+        h5_stable_max_cm = position;
+    }
 }
 
 static void State_H4FinishStop(uint32_t now_ms)
@@ -983,6 +1064,67 @@ static void State_LoadBallPid(StateMode_t mode)
     }
 }
 
+static uint8_t State_WheelHasMoved(int32_t encoder3_start,
+                                   int32_t encoder4_start)
+{
+    int32_t encoder3_delta = Encoder3_GetTotal() - encoder3_start;
+    int32_t encoder4_delta = Encoder4_GetTotal() - encoder4_start;
+
+    if (encoder3_delta < 0) encoder3_delta = -encoder3_delta;
+    if (encoder4_delta < 0) encoder4_delta = -encoder4_delta;
+    return ((encoder3_delta >= BALANCE_START_ENCODER_COUNT) ||
+            (encoder4_delta >= BALANCE_START_ENCODER_COUNT));
+}
+
+static float State_GetH5RunFeedforward(uint32_t now_ms)
+{
+    uint32_t balance_elapsed_ms = now_ms - h5_balance_start_ms;
+    uint32_t ramp_elapsed_ms = now_ms - start_time_ms;
+
+    /* 稳球刚启动时渐入，避免舵机从机械中位突然跳到前馈角度。 */
+    if (balance_elapsed_ms < H5_RAMP_FF_IN_MS)
+    {
+        return H5_RAMP_FF_DEG * (float)balance_elapsed_ms /
+               (float)H5_RAMP_FF_IN_MS;
+    }
+
+    /* 缓启动结束前渐出，使恒速段平滑交回位置环。 */
+    if (ramp_elapsed_ms < (H5_RAMP_UP_MS - H5_RAMP_FF_OUT_MS))
+    {
+        return H5_RAMP_FF_DEG;
+    }
+    if (ramp_elapsed_ms < H5_RAMP_UP_MS)
+    {
+        return H5_RAMP_FF_DEG *
+               (float)(H5_RAMP_UP_MS - ramp_elapsed_ms) /
+               (float)H5_RAMP_FF_OUT_MS;
+    }
+    return 0.0f;
+}
+
+static float State_GetH5StopFeedforward(uint32_t now_ms)
+{
+    uint32_t stop_elapsed_ms = now_ms - h5_stop_start_ms;
+
+    /* 缓停前馈先渐入，停车前再渐出，避免两端角度突变。 */
+    if (stop_elapsed_ms < H5_STOP_FF_IN_MS)
+    {
+        return H5_STOP_FF_DEG * (float)stop_elapsed_ms /
+               (float)H5_STOP_FF_IN_MS;
+    }
+    if (stop_elapsed_ms < (H5_STOP_RAMP_MS - H5_STOP_FF_OUT_MS))
+    {
+        return H5_STOP_FF_DEG;
+    }
+    if (stop_elapsed_ms < H5_STOP_RAMP_MS)
+    {
+        return H5_STOP_FF_DEG *
+               (float)(H5_STOP_RAMP_MS - stop_elapsed_ms) /
+               (float)H5_STOP_FF_OUT_MS;
+    }
+    return 0.0f;
+}
+
 static void State_ActivateStart(uint32_t now_ms)
 {
     start_delay_active = 0U;
@@ -998,6 +1140,8 @@ static void State_ActivateStart(uint32_t now_ms)
         /* H4按下开始时两路编码器清零，从0累计到目标距离。 */
         Encoder3_Reset();
         Encoder4_Reset();
+        h4_start_encoder3 = Encoder3_GetTotal();
+        h4_start_encoder4 = Encoder4_GetTotal();
         h4_drive_pwm = 0;
         h4_drive_phase = "UP";
         h4_coast_active = 0U;
@@ -1006,9 +1150,10 @@ static void State_ActivateStart(uint32_t now_ms)
         h4_stable_min_cm = 0.0f;
         h4_stable_max_cm = 0.0f;
         h4_flat_done = 0U;
+        h4_balance_started = 0U;
         State_LoadBallPid(current_mode);
         BallControl_SetTargetPosition(0.0f);
-        BallControl_SetEnabled(1U);
+        BallControl_SetEnabled(0U);
     }
     else if (current_mode == STATE_MODE_H5_LOOP_CENTER)
     {
@@ -1021,9 +1166,19 @@ static void State_ActivateStart(uint32_t now_ms)
         h5_gray = Gray_Read();
         h5_bend_state = "NONE";
         h5_stop_start_ms = 0U;
-        BallControl_SetAngleFeedforward(0.0f);
-        BallControl_SetEnabled(0U);
+        h5_stable_start_ms = 0U;
+        h5_stable_min_cm = 0.0f;
+        h5_stable_max_cm = 0.0f;
+        h5_flat_done = 0U;
+        h5_balance_started = 0U;
+        h5_balance_start_ms = 0U;
+        h5_start_encoder3 = Encoder3_GetTotal();
+        h5_start_encoder4 = Encoder4_GetTotal();
+        State_LoadBallPid(current_mode);
         BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+        BallControl_SetAngleFeedforward(0.0f);
+        BallControl_SetTargetPosition(0.0f);
+        BallControl_SetEnabled(0U);
     }
     else if (current_mode == STATE_MODE_H3_BALL_MOVE)
     {
@@ -1062,24 +1217,26 @@ static void State_Start(uint32_t now_ms)
     start_time_ms = now_ms;
     last_display_half_second = 0xFFFFFFFFU;
 
-    /* 所有题目开始后先保持停止0.5秒，延时结束再启动并开始计时。 */
-    if ((current_mode == STATE_MODE_H2_CAR_LOOP) ||
-        (current_mode == STATE_MODE_H4_AB_BALANCE) ||
-        (current_mode == STATE_MODE_H5_LOOP_CENTER))
-    {
-        State_H2Brake();
-    }
-    else
-    {
-        BallControl_SetEnabled(0U);
-    }
+    /* 所有模式的0.5秒等待期间，车轮、球控和舵机都保持静止。 */
+    State_H2Brake();
+    BallControl_SetEnabled(0U);
+    BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
     display_dirty = 1U;
 }
 
 static void State_ProcessStartDelay(uint32_t now_ms)
 {
-    if ((start_delay_active != 0U) &&
-        ((uint32_t)(now_ms - start_delay_time_ms) >= START_DELAY_MS))
+    if (start_delay_active == 0U)
+    {
+        return;
+    }
+
+    /* 等待期间每轮强制钳制，禁止任何残留控制输出改变车轮或舵机。 */
+    State_H2Brake();
+    BallControl_SetEnabled(0U);
+    BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+
+    if ((uint32_t)(now_ms - start_delay_time_ms) >= START_DELAY_MS)
     {
         State_ActivateStart(now_ms);
     }
@@ -1114,14 +1271,6 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
             if (current_mode == STATE_MODE_H6_LOOP_TARGET)
             {
                 current_page = STATE_PAGE_TARGET_SET;
-            }
-            else if (current_mode == STATE_MODE_H5_LOOP_CENTER)
-            {
-                /* H5暂不稳球，直接拉平舵机并进入准备页。 */
-                BallControl_SetEnabled(0U);
-                BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
-                balance_calibration = BALANCE_CAL_DONE;
-                current_page = STATE_PAGE_READY;
             }
             else
             {
@@ -1214,13 +1363,10 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
             stopped_elapsed_ms = 0U;
             if (current_mode == STATE_MODE_H5_LOOP_CENTER)
             {
-                /* 提前退出完成页时立即锁止，不让未完成的缓停残留。 */
+                /* 提前退出完成页时先锁止，再重新执行稳球零点标定。 */
                 State_H2Brake();
                 h5_stop_locked = 1U;
-                BallControl_SetEnabled(0U);
-                BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
-                balance_calibration = BALANCE_CAL_DONE;
-                current_page = STATE_PAGE_READY;
+                State_BeginBalanceCalibration(now_ms, 0U);
             }
             else
             {
@@ -1355,19 +1501,67 @@ static void State_RunMode(uint32_t now_ms)
         break;
 
     case STATE_MODE_H5_LOOP_CENTER:
-        if (State_H5Run(now_ms) != 0U)
+    {
+        uint8_t finished = State_H5Run(now_ms);
+
+        if (h5_balance_started == 0U)
+        {
+            if (State_WheelHasMoved(h5_start_encoder3,
+                                    h5_start_encoder4) == 0U)
+            {
+                BallControl_SetEnabled(0U);
+                BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+            }
+            else
+            {
+                /* 编码器确认车轮实际转动后，才同步启动稳球。 */
+                h5_balance_started = 1U;
+                h5_balance_start_ms = now_ms;
+                BallControl_SetEnabled(1U);
+            }
+        }
+
+        if (h5_balance_started != 0U)
+        {
+            BallControl_SetAngleFeedforward(State_GetH5RunFeedforward(now_ms));
+            State_RunBallControl(now_ms);
+        }
+
+        if (finished != 0U)
         {
             /* State_End只冻结题目时间，H5完成页仍会继续执行内部缓停。 */
             State_End(STATE_PAGE_FINISHED, now_ms);
         }
         break;
+    }
 
     case STATE_MODE_H4_AB_BALANCE:
-        /* H4分阶段补偿：加速抑制惯性前冲，恒速补偿运行中的固定偏移。 */
-        if ((uint32_t)(now_ms - start_time_ms) < H4_RAMP_UP_MS)
+    {
+        uint8_t finished = State_H4Run(now_ms);
+
+        if (h4_balance_started == 0U)
         {
-            BallControl_SetAngleFeedforward(
-                (h4_drive_pwm >= H4_LIFT_START_PWM) ? H4_RAMP_FF_DEG : 0.0f);
+            if (State_WheelHasMoved(h4_start_encoder3,
+                                    h4_start_encoder4) == 0U)
+            {
+                BallControl_SetEnabled(0U);
+                BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+            }
+            else
+            {
+                h4_balance_started = 1U;
+                BallControl_SetEnabled(1U);
+            }
+        }
+
+        /* H4分阶段补偿：加速抑制惯性前冲，恒速补偿运行中的固定偏移。 */
+        if (h4_balance_started == 0U)
+        {
+            BallControl_SetAngleFeedforward(0.0f);
+        }
+        else if ((uint32_t)(now_ms - start_time_ms) < H4_RAMP_UP_MS)
+        {
+            BallControl_SetAngleFeedforward(H4_RAMP_FF_DEG);
         }
         else if ((Encoder3_GetTotal() < H4_SLOWDOWN_COUNT) &&
                  (Encoder4_GetTotal() < H4_SLOWDOWN_COUNT))
@@ -1383,12 +1577,16 @@ static void State_RunMode(uint32_t now_ms)
         {
             BallControl_SetAngleFeedforward(0.0f);
         }
-        State_RunBallControl(now_ms);
-        if (State_H4Run(now_ms) != 0U)
+        if (h4_balance_started != 0U)
+        {
+            State_RunBallControl(now_ms);
+        }
+        if (finished != 0U)
         {
             State_End(STATE_PAGE_FINISHED, now_ms);
         }
         break;
+    }
 
     default:
         break;
@@ -1715,7 +1913,8 @@ static void State_SendH4Debug(uint32_t now_ms)
     else if (start_delay_active != 0U) phase = "WAIT";
     else phase = "RUN";
 
-    if (h4_flat_done != 0U) balance_phase = "FLAT";
+    if (h4_balance_started == 0U) balance_phase = "HOLD";
+    else if (h4_flat_done != 0U) balance_phase = "FLAT";
     else if ((current_page == STATE_PAGE_FINISHED) &&
              (h4_stable_start_ms != 0U)) balance_phase = "CHECK";
     else if (current_page == STATE_PAGE_FINISHED) balance_phase = "BAL";
@@ -1777,7 +1976,13 @@ static void State_SendH4Debug(uint32_t now_ms)
 
 static void State_SendH5Debug(uint32_t now_ms)
 {
+    char position[12];
+    char velocity[12];
+    char target_angle[12];
+    char pipe_angle[12];
+    char pipe_gyro[12];
     const char *state;
+    const char *balance_phase;
     uint32_t elapsed_ms;
     int length;
 
@@ -1794,18 +1999,37 @@ static void State_SendH5Debug(uint32_t now_ms)
     else if (start_delay_active != 0U) state = "WAIT";
     else state = "RUN";
 
+    if (h5_balance_started == 0U) balance_phase = "HOLD";
+    else if (h5_flat_done != 0U) balance_phase = "FLAT";
+    else if ((current_page == STATE_PAGE_FINISHED) &&
+             (h5_stop_locked == 0U)) balance_phase = "SLOW";
+    else if ((current_page == STATE_PAGE_FINISHED) &&
+             (h5_stable_start_ms != 0U)) balance_phase = "CHECK";
+    else if (current_page == STATE_PAGE_FINISHED) balance_phase = "BAL";
+    else balance_phase = "RUN";
+
     elapsed_ms = ((current_page == STATE_PAGE_RUNNING) &&
                   (start_delay_active == 0U))
                  ? (now_ms - start_time_ms)
                  : stopped_elapsed_ms;
 
-    /* H5遥测中的E是已冻结的比赛时间，缓停进度由D=STOP继续体现。 */
+    State_FormatSignedCenti(position, sizeof(position), BallControl_GetPosition());
+    State_FormatSignedCenti(velocity, sizeof(velocity), g_shijue_velocity_cm_s);
+    State_FormatSignedCenti(target_angle, sizeof(target_angle),
+                            BallControl_GetTargetAngle());
+    State_FormatSignedCenti(pipe_angle, sizeof(pipe_angle),
+                            BallControl_GetPipeAngle());
+    State_FormatSignedCenti(pipe_gyro, sizeof(pipe_gyro),
+                            BallControl_GetPipeGyro());
+
+    /* H5遥测同时记录车辆、视觉、稳球闭环和补偿阶段。 */
     length = snprintf((char *)h5_debug_buffer,
                       sizeof(h5_debug_buffer),
-                      "H5 E=%lu S=%s D=%s BP=%d G=%02X GE=%d BLACK=%u MARK=%u BEND=%s L=%ld R=%ld LS=%ld RS=%ld\r\n",
+                      "H5 E=%lu S=%s D=%s BS=%s BP=%d G=%02X GE=%d BLACK=%u MARK=%u BEND=%s L=%ld R=%ld LS=%ld RS=%ld P=%s PV=%u V=%s VV=%u TG=%s A=%s W=%s PWM=%u IMU=%u AGE=%lu\r\n",
                       (unsigned long)elapsed_ms,
                       state,
                       h5_drive_phase,
+                      balance_phase,
                       (int)h5_drive_pwm,
                       (unsigned int)h5_gray,
                       (int)Gray_GetError(),
@@ -1815,7 +2039,17 @@ static void State_SendH5Debug(uint32_t now_ms)
                       (long)Encoder3_GetTotal(),
                       (long)Encoder4_GetTotal(),
                       (long)Encoder3_GetSpeedCps(),
-                      (long)Encoder4_GetSpeedCps());
+                      (long)Encoder4_GetSpeedCps(),
+                      position,
+                      (unsigned int)g_shijue_position_valid,
+                      velocity,
+                      (unsigned int)g_shijue_velocity_valid,
+                      target_angle,
+                      pipe_angle,
+                      pipe_gyro,
+                      (unsigned int)BallControl_GetServoPulse(),
+                      (unsigned int)(angleValid && gyroValid),
+                      (unsigned long)(now_ms - lastPacketTime));
 
     if ((length > 0) && ((size_t)length < sizeof(h5_debug_buffer)) &&
         (BSP_UartSendDma(BSP_UART_2,
@@ -1971,6 +2205,9 @@ void State_Init(void)
     h4_stable_min_cm = 0.0f;
     h4_stable_max_cm = 0.0f;
     h4_flat_done = 0U;
+    h4_balance_started = 0U;
+    h4_start_encoder3 = 0;
+    h4_start_encoder4 = 0;
     h5_drive_pwm = 0;
     h5_stop_start_pwm = 0;
     h5_drive_phase = "IDLE";
@@ -1980,6 +2217,14 @@ void State_Init(void)
     h5_gray = Gray_Read();
     h5_bend_state = "NONE";
     h5_stop_start_ms = 0U;
+    h5_stable_start_ms = 0U;
+    h5_stable_min_cm = 0.0f;
+    h5_stable_max_cm = 0.0f;
+    h5_flat_done = 0U;
+    h5_balance_started = 0U;
+    h5_balance_start_ms = 0U;
+    h5_start_encoder3 = 0;
+    h5_start_encoder4 = 0;
     vision_debug_time_ms = now_ms;
     imu_debug_time_ms = now_ms;
     balance_debug_time_ms = now_ms;
@@ -2030,8 +2275,11 @@ void State_RunCurrent(void)
         else if ((current_mode == STATE_MODE_H5_LOOP_CENTER) &&
                  (current_page == STATE_PAGE_FINISHED))
         {
-            /* OLED时间已冻结，内部3秒缓停仍继续计时并执行。 */
+            /* OLED时间已冻结，缓停结束且球稳定后再回机械水平位。 */
+            BallControl_SetAngleFeedforward(State_GetH5StopFeedforward(now_ms));
+            State_RunBallControl(now_ms);
             (void)State_H5Run(now_ms);
+            State_H5FinishBalance(now_ms);
         }
         else
         {
