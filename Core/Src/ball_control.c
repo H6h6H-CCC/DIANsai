@@ -45,6 +45,7 @@ static volatile uint8_t angle_valid;
 
 static float target_position_cm;
 static float target_angle_deg;
+static float angle_feedforward_deg;
 static uint32_t last_outer_time_ms;
 static uint32_t last_inner_time_ms;
 static uint16_t servo_center_us;
@@ -77,6 +78,7 @@ void BallControl_Init(void)
 
     target_position_cm = 0.0f;
     target_angle_deg = 0.0f;
+    angle_feedforward_deg = 0.0f;
     servo_center_us = BALL_SERVO_CENTER_US;
     position_pending = 0U;
     position_valid = 0U;
@@ -96,6 +98,7 @@ void BallControl_SetEnabled(uint8_t enabled)
     PID_Reset(&position_pid);
     PID_Reset(&angle_pid);
     target_angle_deg = 0.0f;
+    angle_feedforward_deg = 0.0f;
 
     if (control_enabled == 0U)
     {
@@ -127,6 +130,13 @@ void BallControl_SetAnglePid(float kp, float ki, float kd)
 {
     PID_SetGains(&angle_pid, kp, ki, kd);
     PID_Reset(&angle_pid);
+}
+
+void BallControl_SetAngleFeedforward(float angle_deg)
+{
+    if (angle_deg > BALL_MAX_TARGET_ANGLE_DEG) angle_deg = BALL_MAX_TARGET_ANGLE_DEG;
+    if (angle_deg < -BALL_MAX_TARGET_ANGLE_DEG) angle_deg = -BALL_MAX_TARGET_ANGLE_DEG;
+    angle_feedforward_deg = angle_deg;
 }
 
 void BallControl_GetPositionPid(float *kp, float *ki, float *kd)
@@ -237,14 +247,18 @@ void BallControl_Process(uint32_t now_ms)
             target_angle_deg = PID_UpdateWithRate(&position_pid,
                                                    position_error,
                                                    position_velocity_cm_s,
-                                                   BALL_OUTER_DT_S);
+                                                   BALL_OUTER_DT_S)
+                             + angle_feedforward_deg;
         }
         else
         {
             target_angle_deg = PID_Update(&position_pid,
                                           position_error,
-                                          BALL_OUTER_DT_S);
+                                          BALL_OUTER_DT_S)
+                             + angle_feedforward_deg;
         }
+        if (target_angle_deg > BALL_MAX_TARGET_ANGLE_DEG) target_angle_deg = BALL_MAX_TARGET_ANGLE_DEG;
+        if (target_angle_deg < -BALL_MAX_TARGET_ANGLE_DEG) target_angle_deg = -BALL_MAX_TARGET_ANGLE_DEG;
     }
     else if ((manual_target_enabled == 0U) &&
              ((position_valid == 0U) ||

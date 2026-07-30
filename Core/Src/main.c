@@ -80,6 +80,11 @@ uint8_t rxBuffer3[256];
 volatile uint16_t g_rx2_size = 0U;
 volatile uint32_t g_jy61_rx_event_count = 0U;
 volatile uint32_t g_jy61_rx_byte_count = 0U;
+volatile uint32_t g_vision_rx_event_count = 0U;
+volatile uint32_t g_vision_rx_byte_count = 0U;
+volatile uint32_t g_vision_rx_restart_fail_count = 0U;
+volatile uint32_t g_vision_uart_error_count = 0U;
+volatile uint32_t g_vision_uart_last_error = 0U;
 uint8_t shijue[10];
 char displayBuffer[20];
 uint16_t atk_id = 0;
@@ -176,10 +181,15 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     }
     else if (BSP_UartMatches(BSP_UART_1, huart))
     {
+      g_vision_rx_event_count++;
+      g_vision_rx_byte_count += Size;
       Shijue_ProcessRxBuffer(rxBuffer1, Size);
-      (void)BSP_UartStartReceiveToIdleDma(BSP_UART_1,
-                                          rxBuffer1,
-                                          sizeof(rxBuffer1));
+      if (BSP_UartStartReceiveToIdleDma(BSP_UART_1,
+                                        rxBuffer1,
+                                        sizeof(rxBuffer1)) != BSP_STATUS_OK)
+      {
+        g_vision_rx_restart_fail_count++;
+      }
     }
     else if (BSP_UartMatches(BSP_UART_2, huart))
     {
@@ -206,6 +216,22 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
         (void)BSP_UartStartReceiveToIdleDma(BSP_UART_5,
                                             rxBuffer5,
                                             sizeof(rxBuffer5));
+    }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (BSP_UartMatches(BSP_UART_1, huart))
+    {
+        /* USART1 DMA遇到线路错误后会停止，立即重启以恢复视觉数据流。 */
+        g_vision_uart_error_count++;
+        g_vision_uart_last_error = huart->ErrorCode;
+        if (BSP_UartStartReceiveToIdleDma(BSP_UART_1,
+                                          rxBuffer1,
+                                          sizeof(rxBuffer1)) != BSP_STATUS_OK)
+        {
+            g_vision_rx_restart_fail_count++;
+        }
     }
 }
 
@@ -267,6 +293,8 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+    /* 临时舵机调试：PA15/PB3/PB10/PB11 四路均固定为1730 us。 */
+
     while (1)
     {
       State_RunCurrent();

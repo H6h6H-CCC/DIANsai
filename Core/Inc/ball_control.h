@@ -10,6 +10,7 @@ void BallControl_SetTargetPosition(float target_cm);
 void BallControl_SetServoCenter(uint16_t center_us);
 void BallControl_SetPositionPid(float kp, float ki, float kd);
 void BallControl_SetAnglePid(float kp, float ki, float kd);
+void BallControl_SetAngleFeedforward(float angle_deg);
 void BallControl_GetPositionPid(float *kp, float *ki, float *kd);
 void BallControl_GetAnglePid(float *kp, float *ki, float *kd);
 void BallControl_SetManualTargetAngle(float target_deg);
