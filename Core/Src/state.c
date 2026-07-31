@@ -163,6 +163,15 @@
 #define H6_MINUS7_BETWEEN_TRIM_DEG        -0.25f
 #define H6_MINUS7_BETWEEN_RAMP_MS          500U
 #define H6_MINUS7_SECOND_EXIT_RAMP_MS      500U
+#define H6_MINUS9_HOLD_ENTER_ERROR_CM       0.30f
+#define H6_MINUS9_HOLD_ENTER_SPEED_CM_S     0.80f
+#define H6_MINUS9_HOLD_EXIT_ERROR_CM        0.80f
+#define H6_MINUS9_HOLD_ARM_MS               5000U
+#define H6_MINUS9_START_TRIM_DEG              -0.50f
+#define H6_MINUS9_HOLD_TRIM_DEG               0.03f
+#define H6_MINUS9_START_KP                     0.45f
+#define H6_MINUS9_START_KI                     0.06f
+#define H6_MINUS9_START_KD                     0.30f
 #define H6_BEND_ARM_MS                    6000U  /* 过滤起步阶段的右侧黑线毛刺。 */
 #define H6_BEND_EXIT_CONFIRM_MS            300U
 #define H6_SECOND_BEND_MIN_GAP_MS        1000U
@@ -260,6 +269,8 @@ static float h6_stable_min_cm;
 static float h6_stable_max_cm;
 static uint8_t h6_flat_done;
 static uint8_t h6_balance_started;
+static uint8_t h6_horizontal_hold;
+static uint8_t h6_minus9_recovery_pid_active;
 static uint32_t h6_balance_start_ms;
 static int32_t h6_start_encoder3;
 static int32_t h6_start_encoder4;
@@ -267,8 +278,8 @@ static H6PositionPidNode_t h6_position_pid_nodes[H6_PID_NODE_COUNT] =
 {
     /* 尚未实调的负向节点先使用H5位置环参数，后续逐点独立固化。 */
     {-110, 0.60f, 0.30f, 0.70f},
-    /* -9cm保留适量速度阻尼，并增强积分以消除实测持续单边偏差。 */
-    { -90, 0.45f, 0.10f, 0.20f},
+    /* -9cm保持区外加强比例纠偏，进入保持区后改由水平角度环维持。 */
+    { -90, 0.60f, 0.10f, 0.20f},
     /* -7cm沿用已验证的低Ki、低Kd组合，避免视觉速度毛刺引起抖动。 */
     { -70, 0.45f, 0.06f, 0.30f},
     /* -5cm降低积分和速度反馈，避免目标角在正负限幅间反复跳变。 */
@@ -394,6 +405,7 @@ extern volatile uint32_t g_debug_uart_last_error;
 static void State_Start(uint32_t now_ms);
 static void State_RunBallControl(uint32_t now_ms);
 static void State_H6UpdateKick(uint32_t now_ms);
+static void State_H6UpdateHorizontalHold(uint32_t now_ms);
 static void State_ProcessDebugCommand(void);
 static void State_SendDebugReply(void);
 
@@ -1139,6 +1151,7 @@ static void State_H6FinishBalance(uint32_t now_ms)
     float position;
 
     /* 四黑后的3秒缓停期间也必须持续运行双环，不能保持旧舵机输出。 */
+    State_H6UpdateHorizontalHold(now_ms);
     State_RunBallControl(now_ms);
     if (h6_stop_locked == 0U)
     {
@@ -1490,6 +1503,70 @@ static void State_H6ApplyPositionPid(void)
     BallControl_SetPositionPid(kp, ki, kd);
 }
 
+static void State_H6UpdateHorizontalHold(uint32_t now_ms)
+{
+    float error_cm;
+    float speed_cm_s;
+
+    if (target_tenth_cm != -90)
+    {
+        if (h6_horizontal_hold != 0U)
+        {
+            h6_horizontal_hold = 0U;
+            BallControl_SetAutoTargetAngle();
+        }
+        return;
+    }
+
+    if (((uint32_t)(now_ms - start_time_ms) >= H6_MINUS9_HOLD_ARM_MS) &&
+        (h6_minus9_recovery_pid_active == 0U))
+    {
+        h6_minus9_recovery_pid_active = 1U;
+        State_H6ApplyPositionPid();
+    }
+
+    error_cm = BallControl_GetTargetPosition() - g_shijue_position_cm;
+    if (h6_horizontal_hold != 0U)
+    {
+        if ((error_cm <= -H6_MINUS9_HOLD_EXIT_ERROR_CM) ||
+            (error_cm >= H6_MINUS9_HOLD_EXIT_ERROR_CM))
+        {
+            h6_horizontal_hold = 0U;
+            BallControl_SetAngleFeedforward(0.0f);
+            BallControl_SetAutoTargetAngle();
+        }
+        else
+        {
+            BallControl_SetAngleFeedforward(H6_MINUS9_HOLD_TRIM_DEG);
+        }
+        return;
+    }
+
+    /* 发车扰动尚未结束时保持位置环工作，避免过早水平导致钢球滚到管端。 */
+    if ((uint32_t)(now_ms - start_time_ms) < H6_MINUS9_HOLD_ARM_MS)
+    {
+        return;
+    }
+
+    if ((g_shijue_position_valid == 0U) ||
+        (g_shijue_velocity_valid == 0U))
+    {
+        return;
+    }
+
+    speed_cm_s = g_shijue_velocity_cm_s;
+    if ((error_cm > -H6_MINUS9_HOLD_ENTER_ERROR_CM) &&
+        (error_cm < H6_MINUS9_HOLD_ENTER_ERROR_CM) &&
+        (speed_cm_s > -H6_MINUS9_HOLD_ENTER_SPEED_CM_S) &&
+        (speed_cm_s < H6_MINUS9_HOLD_ENTER_SPEED_CM_S))
+    {
+        /* 到达目标后只保留角度内环水平保持，避免视觉噪声持续驱动位置环。 */
+        h6_horizontal_hold = 1U;
+        BallControl_SetAngleFeedforward(H6_MINUS9_HOLD_TRIM_DEG);
+        BallControl_SetManualTargetAngle(H6_MINUS9_HOLD_TRIM_DEG);
+    }
+}
+
 static void State_H6ResetKick(void)
 {
     h6_kick_state = 0U;
@@ -1782,9 +1859,24 @@ static float State_GetH6RunFeedforward(uint32_t now_ms)
     float start_trim_deg = 0.0f;
     float brake_trim_deg = 0.0f;
 
-    /* -9cm独立原始基线：不使用任何运行前馈或补偿。 */
+    /* -9cm独立起步补偿：5s位置控制阶段渐入、渐出，随后交给水平保持。 */
     if (target_tenth_cm == -90)
     {
+        if (balance_elapsed_ms < H6_RAMP_FF_IN_MS)
+        {
+            return H6_MINUS9_START_TRIM_DEG *
+                   (float)balance_elapsed_ms / (float)H6_RAMP_FF_IN_MS;
+        }
+        if (ramp_elapsed_ms < (H6_MINUS9_HOLD_ARM_MS - H6_RAMP_FF_OUT_MS))
+        {
+            return H6_MINUS9_START_TRIM_DEG;
+        }
+        if (ramp_elapsed_ms < H6_MINUS9_HOLD_ARM_MS)
+        {
+            return H6_MINUS9_START_TRIM_DEG *
+                   (float)(H6_MINUS9_HOLD_ARM_MS - ramp_elapsed_ms) /
+                   (float)H6_RAMP_FF_OUT_MS;
+        }
         return 0.0f;
     }
 
@@ -2146,6 +2238,8 @@ static void State_ActivateStart(uint32_t now_ms)
     else if (current_mode == STATE_MODE_H6_LOOP_TARGET)
     {
         State_H6ResetKick();
+        h6_horizontal_hold = 0U;
+        h6_minus9_recovery_pid_active = 0U;
         h6_drive_pwm = 0;
         h6_stop_start_pwm = 0;
         h6_drive_phase = "UP";
@@ -2171,6 +2265,13 @@ static void State_ActivateStart(uint32_t now_ms)
         h6_start_encoder3 = Encoder3_GetTotal();
         h6_start_encoder4 = Encoder4_GetTotal();
         State_LoadBallPid(current_mode);
+        if (target_tenth_cm == -90)
+        {
+            BallControl_SetPositionPid(H6_MINUS9_START_KP,
+                                       H6_MINUS9_START_KI,
+                                       H6_MINUS9_START_KD);
+        }
+        BallControl_SetAutoTargetAngle();
         BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
         BallControl_SetAngleFeedforward(0.0f);
         BallControl_SetTargetPosition(0.0f);
@@ -2401,6 +2502,7 @@ static void State_RunMode(uint32_t now_ms)
         {
             BallControl_SetAngleFeedforward(State_GetH6RunFeedforward(now_ms));
             State_H6UpdateKick(now_ms);
+            State_H6UpdateHorizontalHold(now_ms);
             State_RunBallControl(now_ms);
         }
 
@@ -3037,7 +3139,7 @@ static void State_SendBalanceDebug(uint32_t now_ms)
         else state = "READY";
         length = snprintf((char *)balance_debug_buffer,
                           sizeof(balance_debug_buffer),
-                          "H6 S=%s D=%s BP=%d G=%02X GE=%d BLACK=%u MARK=%u FLAT=%u BEND=%s T=%s P=%s V=%s E=%s KP=%s KI=%s KD=%s TG=%s A=%s W=%s PWM=%u K=%u PV=%u VV=%u VR=%lu/%lu IMU=%u AGE=%lu RX=%lu/%lu UE=%lu/%lu/%lu\r\n",
+                          "H6 S=%s D=%s BP=%d G=%02X GE=%d BLACK=%u MARK=%u FLAT=%u BEND=%s T=%s P=%s V=%s E=%s KP=%s KI=%s KD=%s TG=%s A=%s W=%s PWM=%u K=%u PV=%u VV=%u VR=%lu/%lu IMU=%u AGE=%lu RX=%lu/%lu UE=%lu/%lu/%lu HOLD=%u\r\n",
                           state, h6_drive_phase, (int)h6_drive_pwm,
                           (unsigned int)h6_gray, (int)Gray_GetError(),
                           (unsigned int)h6_black_count,
@@ -3059,7 +3161,8 @@ static void State_SendBalanceDebug(uint32_t now_ms)
                           (unsigned long)debug_rx_byte_count,
                           (unsigned long)g_debug_uart_error_count,
                           (unsigned long)g_debug_rx_restart_fail_count,
-                          (unsigned long)g_debug_uart_last_error);
+                          (unsigned long)g_debug_uart_last_error,
+                          (unsigned int)h6_horizontal_hold);
     }
     else
     {
@@ -3445,6 +3548,8 @@ void State_Init(void)
     h6_stable_max_cm = 0.0f;
     h6_flat_done = 0U;
     h6_balance_started = 0U;
+    h6_horizontal_hold = 0U;
+    h6_minus9_recovery_pid_active = 0U;
     h6_balance_start_ms = 0U;
     h6_start_encoder3 = 0;
     h6_start_encoder4 = 0;
