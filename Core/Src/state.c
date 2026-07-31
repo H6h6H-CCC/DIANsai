@@ -40,6 +40,7 @@
 #define H5_STOP_RAMP_MS       3000U
 #define H5_MARKER_BLACK_COUNT 4U
 #define H5_RAMP_FF_DEG        -0.80f
+#define H5_RUN_BIAS_FF_DEG     0.10f
 #define H5_RAMP_FF_IN_MS       300U
 #define H5_RAMP_FF_OUT_MS      500U
 #define H5_STOP_FF_DEG         0.30f
@@ -1088,18 +1089,20 @@ static float State_GetH5RunFeedforward(uint32_t now_ms)
                (float)H5_RAMP_FF_IN_MS;
     }
 
-    /* 缓启动结束前渐出，使恒速段平滑交回位置环。 */
+    /* 缓启动结束前平滑过渡到恒速偏置，补偿实测负向固定偏差。 */
     if (ramp_elapsed_ms < (H5_RAMP_UP_MS - H5_RAMP_FF_OUT_MS))
     {
         return H5_RAMP_FF_DEG;
     }
     if (ramp_elapsed_ms < H5_RAMP_UP_MS)
     {
-        return H5_RAMP_FF_DEG *
-               (float)(H5_RAMP_UP_MS - ramp_elapsed_ms) /
-               (float)H5_RAMP_FF_OUT_MS;
+        float transition = (float)(ramp_elapsed_ms -
+                           (H5_RAMP_UP_MS - H5_RAMP_FF_OUT_MS)) /
+                           (float)H5_RAMP_FF_OUT_MS;
+        return H5_RAMP_FF_DEG +
+               (H5_RUN_BIAS_FF_DEG - H5_RAMP_FF_DEG) * transition;
     }
-    return 0.0f;
+    return H5_RUN_BIAS_FF_DEG;
 }
 
 static float State_GetH5StopFeedforward(uint32_t now_ms)
