@@ -85,6 +85,9 @@ volatile uint32_t g_vision_rx_byte_count = 0U;
 volatile uint32_t g_vision_rx_restart_fail_count = 0U;
 volatile uint32_t g_vision_uart_error_count = 0U;
 volatile uint32_t g_vision_uart_last_error = 0U;
+volatile uint32_t g_debug_rx_restart_fail_count = 0U;
+volatile uint32_t g_debug_uart_error_count = 0U;
+volatile uint32_t g_debug_uart_last_error = 0U;
 uint8_t shijue[10];
 char displayBuffer[20];
 uint16_t atk_id = 0;
@@ -108,7 +111,12 @@ static void Main_AppInit(void)
     /* 启动周期定时器和各串口的空闲中断 DMA 接收。 */
     BSP_TimeStartPeriodic();
     (void)BSP_UartStartReceiveToIdleDma(BSP_UART_1, rxBuffer1, sizeof(rxBuffer1));
-    (void)BSP_UartStartReceiveToIdleDma(BSP_UART_2, rxBuffer2, sizeof(rxBuffer2));
+    if (BSP_UartStartReceiveToIdleDma(BSP_UART_2,
+                                      rxBuffer2,
+                                      sizeof(rxBuffer2)) != BSP_STATUS_OK)
+    {
+        g_debug_rx_restart_fail_count++;
+    }
     (void)BSP_UartStartReceiveToIdleDma(BSP_UART_3, rxBuffer3, sizeof(rxBuffer3));
     (void)BSP_UartStartReceiveToIdleDma(BSP_UART_4, rxBuffer4, sizeof(rxBuffer4));
     (void)BSP_UartStartReceiveToIdleDma(BSP_UART_5, rxBuffer5, sizeof(rxBuffer5));
@@ -156,7 +164,7 @@ static void Main_AppInit(void)
 #endif
     /* OLED、按键和题目逻辑统一由 state 模块管理。 */
     State_Init();
-    /* PA15 舵机由 BallControl 管理，默认保持 1730 us 机械中位。 */
+    /* PA15 舵机由 BallControl 管理，默认保持 1750 us 机械中位。 */
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
@@ -199,9 +207,12 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 #else
         State_DebugRx(rxBuffer2, Size);
 #endif
-        (void)BSP_UartStartReceiveToIdleDma(BSP_UART_2,
-                                            rxBuffer2,
-                                            sizeof(rxBuffer2));
+        if (BSP_UartStartReceiveToIdleDma(BSP_UART_2,
+                                          rxBuffer2,
+                                          sizeof(rxBuffer2)) != BSP_STATUS_OK)
+        {
+            g_debug_rx_restart_fail_count++;
+        }
     }
     else if (BSP_UartMatches(BSP_UART_3, huart))
     {
@@ -231,6 +242,18 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
                                           sizeof(rxBuffer1)) != BSP_STATUS_OK)
         {
             g_vision_rx_restart_fail_count++;
+        }
+    }
+    else if (BSP_UartMatches(BSP_UART_2, huart))
+    {
+        /* USART2 线路错误会终止 DMA 接收，立即重启以保留在线调参能力。 */
+        g_debug_uart_error_count++;
+        g_debug_uart_last_error = huart->ErrorCode;
+        if (BSP_UartStartReceiveToIdleDma(BSP_UART_2,
+                                          rxBuffer2,
+                                          sizeof(rxBuffer2)) != BSP_STATUS_OK)
+        {
+            g_debug_rx_restart_fail_count++;
         }
     }
 }
@@ -293,7 +316,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-    /* 临时舵机调试：PA15/PB3/PB10/PB11 四路均固定为1730 us。 */
+    /* 临时舵机调试：PA15/PB3/PB10/PB11 四路均固定为1750 us。 */
 
     while (1)
     {

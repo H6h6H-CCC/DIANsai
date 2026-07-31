@@ -23,6 +23,8 @@ extern volatile uint8_t g_shijue_velocity_valid;
 extern volatile uint8_t g_shijue_last_type;
 extern volatile uint8_t g_shijue_last_seq;
 extern volatile uint8_t g_shijue_error_flag;
+extern volatile uint32_t g_shijue_position_reject_count;
+extern volatile uint32_t g_shijue_velocity_reject_count;
 
 /* Retained for old, currently disabled state code. */
 typedef struct

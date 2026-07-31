@@ -22,6 +22,7 @@
 #define H2_REVERSE_MS         250U
 #define H2_FIRST_STRAIGHT_MS  100U
 #define H2_MARKER_BLACK_COUNT 4U
+#define H2_MARKER_CONFIRM_MS  40U
 #define H4_BASE_PWM           250
 #define H4_TRACK_KP           8
 #define H4_RAMP_UP_MS         2000U
@@ -39,6 +40,8 @@
 #define H5_LIFT_START_PWM     80
 #define H5_STOP_RAMP_MS       3000U
 #define H5_MARKER_BLACK_COUNT 4U
+#define H5_MARKER_ARM_MS      24500U
+#define H5_MARKER_CONFIRM_MS  30U
 #define H5_RAMP_FF_DEG        -0.80f
 #define H5_RUN_BIAS_FF_DEG     0.10f
 #define H5_RAMP_FF_IN_MS       300U
@@ -48,7 +51,7 @@
 #define H5_STOP_FF_OUT_MS      600U
 #define START_DELAY_MS        500U
 #define BALANCE_START_ENCODER_COUNT 10L
-#define BALANCE_SERVO_CENTER_US 1730U
+#define BALANCE_SERVO_CENTER_US 1750U
 #define BALANCE_SETTLE_MS       1000U
 #define BALANCE_SAMPLE_MS       1000U
 #define BALANCE_SAMPLE_PERIOD_MS 10U
@@ -95,6 +98,97 @@
 #define H6_ANGLE_KP                  100.0f
 #define H6_ANGLE_KI                  100.0f
 #define H6_ANGLE_KD                    0.5f
+#define H6_BASE_PWM                    220
+#define H6_TRACK_KP                      8
+#define H6_RAMP_UP_MS                 2000U
+#define H6_STOP_RAMP_MS               3000U
+#define H6_MARKER_BLACK_COUNT            4U
+#define H6_MARKER_CONFIRM_MS             30U
+#define H6_RAMP_FF_DEG                -0.80f
+#define H6_RUN_BIAS_FF_DEG             0.10f
+#define H6_RAMP_FF_IN_MS               300U
+#define H6_RAMP_FF_OUT_MS              500U
+#define H6_STOP_FF_DEG                  0.32f  /* 两圈缓停轻微偏负，仅增加0.02度补偿。 */
+#define H6_STOP_FF_IN_MS               200U
+#define H6_STOP_FF_OUT_MS              600U
+#define H6_PLUS3_BASE_TRIM_DEG           0.05f  /* +3cm运行全程保留，拉平后随闭环关闭。 */
+#define H6_PLUS3_START_TRIM_DEG          0.105f
+#define H6_PLUS3_STOP_TRIM_DEG           0.07f
+#define H6_PLUS5_BASE_TRIM_DEG           0.05f  /* +5cm独立参数，初值复制+3cm实测值。 */
+#define H6_PLUS5_START_TRIM_DEG          0.105f
+#define H6_PLUS5_STOP_TRIM_DEG           0.07f
+#define H6_PLUS7_BASE_TRIM_DEG           0.05f  /* +7cm独立参数，初值复制+5cm实测值。 */
+#define H6_PLUS7_START_TRIM_DEG          0.08f
+#define H6_PLUS7_STOP_TRIM_DEG           0.07f
+#define H6_PLUS9_BASE_TRIM_DEG           0.05f  /* +9cm独立参数，初值复制+7cm实测值。 */
+#define H6_PLUS9_START_TRIM_DEG          0.08f
+#define H6_PLUS9_STOP_TRIM_DEG           0.07f
+#define H6_PLUS11_BASE_TRIM_DEG          0.06f  /* +11cm恒速仍轻微偏负，基础补偿增加0.01度。 */
+#define H6_PLUS11_START_TRIM_DEG         0.105f  /* 抑制起步后3~4秒的负向惯性过冲。 */
+#define H6_PLUS11_STOP_TRIM_DEG          0.07f
+#define H6_PLUS11_BRAKE_TRIM_DEG         0.03f  /* 新PID下仅补偿起步后3~5秒的小幅残余过冲。 */
+#define H6_PLUS11_BRAKE_START_MS       3000U
+#define H6_PLUS11_BRAKE_END_MS         5000U
+#define H6_PLUS11_BRAKE_RAMP_MS         500U
+#define H6_MINUS1_BASE_TRIM_DEG          0.04f  /* -1cm稳定段偏正，基础补偿减少0.01度。 */
+#define H6_MINUS1_START_TRIM_DEG         0.055f  /* 小幅增加起步反向补偿，压低正向超调。 */
+#define H6_MINUS1_STOP_TRIM_DEG          0.07f
+#define H6_MINUS1_STOP_KICK_ERROR_CM     0.35f
+#define H6_MINUS1_STOP_KICK_ANGLE_DEG    0.4f
+#define H6_MINUS1_STOP_KICK_MOVE_CM       0.10f
+#define H6_MINUS1_STOP_KICK_SPEED_CM_S    0.80f
+#define H6_MINUS1_STOP_KICK_MAX_COUNT      2U
+#define H6_MINUS3_BASE_TRIM_DEG          0.02f  /* -3cm巡航仍偏正约0.45cm，再独立小降0.01度。 */
+#define H6_MINUS3_START_TRIM_DEG         0.080f /* -3cm两圈实测后再小幅增加，继续压低起步峰值。 */
+#define H6_MINUS3_STOP_TRIM_DEG          0.07f  /* 恢复上版停车补偿，抑制负向超调。 */
+#define H6_MINUS5_BASE_TRIM_DEG          0.02f  /* 三圈巡航平均偏车头0.17cm，再小幅向车尾修正。 */
+#define H6_MINUS5_START_TRIM_DEG         0.10f  /* 减弱起步阶段的负向抬升，压低越过目标后的超调。 */
+#define H6_MINUS5_STOP_TRIM_DEG          0.00f
+#define H6_MINUS5_TRANSITION_TRIM_DEG    0.06f  /* 加强起步后3~5秒的负向过渡补偿。 */
+#define H6_MINUS5_TRANSITION_START_MS  3000U
+#define H6_MINUS5_TRANSITION_END_MS    5000U
+#define H6_MINUS5_TRANSITION_RAMP_MS    500U
+#define H6_MINUS7_BASE_TRIM_DEG         -0.185f  /* 两圈巡航仍平均偏正约0.47cm，再向车头补偿0.01度。 */
+#define H6_MINUS7_START_TRIM_DEG         -0.65f  /* 两圈峰值均在起步后1.55秒，继续压低起步超调。 */
+#define H6_MINUS7_START_FF_OUT_START_MS  1200U  /* -7cm独立折中渐出，平衡正负双向超调。 */
+#define H6_MINUS7_START_FF_OUT_END_MS    1700U
+#define H6_MINUS7_STOP_TRIM_DEG          -0.005f
+#define H6_MINUS7_PRE_BEND_TRIM_DEG      -0.17f /* 6s后至第一弯前段的专用补偿。 */
+#define H6_MINUS7_PRE_BEND_START_MS      6000U
+#define H6_MINUS7_PRE_BEND_RAMP_MS        500U
+#define H6_MINUS7_BEND_LATE_DELAY_MS     4000U  /* 第一弯后段开始减弱，抑制出口回摆。 */
+#define H6_MINUS7_EXIT_TRIM_DEG           -0.05f
+#define H6_MINUS7_EXIT_RAMP_MS             500U
+#define H6_MINUS7_BETWEEN_DELAY_MS        1000U /* 第一弯退出后等待1s再加强弯间补偿。 */
+#define H6_MINUS7_BETWEEN_TRIM_DEG        -0.25f
+#define H6_MINUS7_BETWEEN_RAMP_MS          500U
+#define H6_MINUS7_SECOND_EXIT_RAMP_MS      500U
+#define H6_BEND_ARM_MS                    6000U  /* 过滤起步阶段的右侧黑线毛刺。 */
+#define H6_BEND_EXIT_CONFIRM_MS            300U
+#define H6_SECOND_BEND_MIN_GAP_MS        1000U
+#define H6_FLAT_TOLERANCE_CM              0.6f  /* H6结束仍留出题目+/-1cm要求的余量。 */
+#define H6_FLAT_MAX_SPEED_CM_S            1.2f
+#define H6_FLAT_STABLE_RANGE_CM           0.8f
+#define H6_END_TARGET_TENTH_CM          120
+#define H6_MARKER_ARM_MS              24500U
+#define H6_PID_NODE_COUNT             12U
+#define H6_KICK_ERROR_CM               1.0f
+#define H6_KICK_MAX_SPEED_CM_S          0.2f
+#define H6_KICK_WAIT_MS                300U
+#define H6_KICK_MIN_MS                 150U
+#define H6_KICK_RAMP_IN_MS            1000U
+#define H6_KICK_MAX_MS                1300U
+#define H6_KICK_RAMP_OUT_MS            150U
+#define H6_KICK_RETRY_MS              1200U
+#define H6_KICK_MOVE_CM                  0.15f
+#define H6_KICK_START_SPEED_CM_S         0.5f
+#define H6_KICK_ANGLE_DEG                2.0f
+#define H6_KICK_MAX_COUNT                3U
+#define H6_NEAR_TARGET_TENTH_CM          30
+#define H6_NEAR_KICK_MOVE_CM              0.05f
+#define H6_NEAR_KICK_START_SPEED_CM_S     0.2f
+#define H6_NEAR_KICK_ANGLE_DEG             0.8f
+#define H6_NEAR_KICK_MAX_COUNT             0U
 
 typedef enum
 {
@@ -125,11 +219,76 @@ typedef enum
     BALANCE_CAL_DONE
 } BalanceCalibration_t;
 
+typedef struct
+{
+    int16_t target_tenth_cm;
+    float kp;
+    float ki;
+    float kd;
+} H6PositionPidNode_t;
+
 static StateMode_t current_mode;
 static StatePage_t current_page;
 static uint8_t selected_item;
 static int16_t target_tenth_cm;
-static uint8_t h6_target_send_pending;
+static uint8_t vision_origin_send_pending;
+static uint8_t h6_kick_state;
+static uint32_t h6_still_start_ms;
+static uint32_t h6_kick_start_ms;
+static float h6_kick_angle_deg;
+static float h6_kick_applied_deg;
+static float h6_kick_start_position_cm;
+static uint8_t h6_kick_count;
+static int16_t h6_drive_pwm;
+static int16_t h6_stop_start_pwm;
+static const char *h6_drive_phase;
+static uint8_t h6_marker_detected;
+static uint32_t h6_marker_candidate_ms;
+static uint8_t h6_stop_locked;
+static uint8_t h6_black_count;
+static uint8_t h6_gray;
+static const char *h6_bend_state;
+static uint8_t h6_bend_active;
+static uint8_t h6_bend_count;
+static uint32_t h6_bend_last_seen_ms;
+static uint32_t h6_first_bend_enter_ms;
+static uint32_t h6_first_bend_exit_ms;
+static uint32_t h6_second_bend_enter_ms;
+static uint32_t h6_stop_start_ms;
+static uint32_t h6_stable_start_ms;
+static float h6_stable_min_cm;
+static float h6_stable_max_cm;
+static uint8_t h6_flat_done;
+static uint8_t h6_balance_started;
+static uint32_t h6_balance_start_ms;
+static int32_t h6_start_encoder3;
+static int32_t h6_start_encoder4;
+static H6PositionPidNode_t h6_position_pid_nodes[H6_PID_NODE_COUNT] =
+{
+    /* 尚未实调的负向节点先使用H5位置环参数，后续逐点独立固化。 */
+    {-110, 0.60f, 0.30f, 0.70f},
+    /* -9cm保留适量速度阻尼，并增强积分以消除实测持续单边偏差。 */
+    { -90, 0.45f, 0.10f, 0.20f},
+    /* -7cm沿用已验证的低Ki、低Kd组合，避免视觉速度毛刺引起抖动。 */
+    { -70, 0.45f, 0.06f, 0.30f},
+    /* -5cm降低积分和速度反馈，避免目标角在正负限幅间反复跳变。 */
+    { -50, 0.45f, 0.06f, 0.30f},
+    { -30, 0.60f, 0.30f, 0.70f},
+    /* -1 cm增加速度阻尼，抑制起步后的正负双向过冲。 */
+    { -10, 0.50f, 0.15f, 0.60f},
+    {  10, 0.50f, 0.15f, 0.25f},
+    /* +3 cm 三轮实测稳定，增加微分抑制接近目标时的超调。 */
+    {  30, 0.50f, 0.15f, 0.45f},
+    /* +5 cm 三轮实测稳定，约 1 s 进入 +/-1 cm。 */
+    {  50, 0.50f, 0.20f, 0.45f},
+    /* +7 cm 三轮实测稳定，约 1.2 s 进入 +/-1 cm。 */
+    {  70, 0.50f, 0.20f, 0.45f},
+    /* +9 cm 三轮实测稳定，约 1.2 s 进入 +/-1 cm。 */
+    {  90, 0.50f, 0.20f, 0.45f},
+    /* +11 cm 三轮实测稳定，约 1.25 s 进入 +/-1 cm。 */
+    /* +11 cm降低积分并增加速度阻尼，抑制起步后3~5秒惯性过冲。 */
+    { 110, 0.60f, 0.20f, 0.90f}
+};
 static float balance_roll_zero_deg;
 static float balance_wx_zero_dps;
 static uint8_t balance_roll_zero_valid;
@@ -156,6 +315,7 @@ static float h3_stable_max_cm;
 
 static uint8_t h2_marker_count;
 static uint8_t h2_marker_active;
+static uint32_t h2_marker_candidate_ms;
 static uint8_t h2_straight_active;
 static uint8_t h2_reverse_active;
 static uint8_t h2_stop_locked;
@@ -176,6 +336,7 @@ static int16_t h5_drive_pwm;
 static int16_t h5_stop_start_pwm;
 static const char *h5_drive_phase;
 static uint8_t h5_marker_detected;
+static uint32_t h5_marker_candidate_ms;
 static uint8_t h5_stop_locked;
 static uint8_t h5_black_count;
 static uint8_t h5_gray;
@@ -195,7 +356,7 @@ static StatePage_t last_display_page;
 static uint32_t last_display_half_second;
 static char display_cache[4][16];
 
-static uint8_t balance_debug_buffer[220];
+static uint8_t balance_debug_buffer[320];
 static uint32_t balance_debug_time_ms;
 static uint8_t vision_debug_buffer[128];
 static uint32_t vision_debug_time_ms;
@@ -226,11 +387,21 @@ extern volatile uint32_t g_vision_rx_byte_count;
 extern volatile uint32_t g_vision_rx_restart_fail_count;
 extern volatile uint32_t g_vision_uart_error_count;
 extern volatile uint32_t g_vision_uart_last_error;
+extern volatile uint32_t g_debug_rx_restart_fail_count;
+extern volatile uint32_t g_debug_uart_error_count;
+extern volatile uint32_t g_debug_uart_last_error;
 
 static void State_Start(uint32_t now_ms);
 static void State_RunBallControl(uint32_t now_ms);
+static void State_H6UpdateKick(uint32_t now_ms);
 static void State_ProcessDebugCommand(void);
 static void State_SendDebugReply(void);
+
+static int16_t State_CmToTenth(float target_cm)
+{
+    float scaled = target_cm * 10.0f;
+    return (int16_t)(scaled + ((scaled >= 0.0f) ? 0.5f : -0.5f));
+}
 
 static const char *State_SkipSpaces(const char *text)
 {
@@ -264,7 +435,6 @@ static uint8_t State_ParsePid(const char *text, float *kp, float *ki, float *kd)
 void State_DebugRx(const uint8_t *data, uint16_t length)
 {
     uint16_t i;
-    uint8_t line_finished = 0U;
 
     debug_rx_event_count++;
     debug_rx_byte_count += length;
@@ -275,26 +445,24 @@ void State_DebugRx(const uint8_t *data, uint16_t length)
 
         if ((value == '\r') || (value == '\n'))
         {
-            line_finished = 1U;
+            /* 只按行结束符提交，DMA 空闲事件可能把一条命令拆成多段。 */
+            if ((debug_rx_build_length != 0U) &&
+                (debug_command_ready == 0U))
+            {
+                memcpy(debug_command, debug_rx_build, debug_rx_build_length);
+                debug_command[debug_rx_build_length] = '\0';
+                debug_command_ready = 1U;
+                debug_rx_build_length = 0U;
+            }
             continue;
         }
 
-        if ((value >= 32) && (value <= 126) &&
+        if ((debug_command_ready == 0U) &&
+            (value >= 32) && (value <= 126) &&
             (debug_rx_build_length < (DEBUG_COMMAND_SIZE - 1U)))
         {
             debug_rx_build[debug_rx_build_length++] = value;
         }
-    }
-
-    /* DMA 空闲事件本身也表示一次手动发送结束，因此换行可省略。 */
-    if (((line_finished != 0U) || (length != 0U)) &&
-        (debug_rx_build_length != 0U) &&
-        (debug_command_ready == 0U))
-    {
-        memcpy(debug_command, debug_rx_build, debug_rx_build_length);
-        debug_command[debug_rx_build_length] = '\0';
-        debug_command_ready = 1U;
-        debug_rx_build_length = 0U;
     }
 }
 
@@ -512,6 +680,7 @@ static void State_H2Reset(void)
 {
     h2_marker_count = 0U;
     h2_marker_active = 0U;
+    h2_marker_candidate_ms = 0U;
     h2_straight_active = 0U;
     h2_reverse_active = 0U;
     h2_stop_locked = 0U;
@@ -563,26 +732,37 @@ static uint8_t State_H2Run(uint32_t now_ms)
     if ((black_count >= H2_MARKER_BLACK_COUNT) &&
         (h2_marker_active == 0U))
     {
-        h2_marker_active = 1U;
-        h2_marker_count++;
-
-        if (h2_marker_count == 1U)
+        if (h2_marker_candidate_ms == 0U)
         {
-            h2_straight_active = 1U;
-            h2_straight_start_ms = now_ms;
+            h2_marker_candidate_ms = now_ms;
         }
-        else
+        else if ((uint32_t)(now_ms - h2_marker_candidate_ms) >=
+                 H2_MARKER_CONFIRM_MS)
         {
-            h2_reverse_active = 1U;
-            h2_reverse_start_ms = now_ms;
-            Moter_A(H2_REVERSE_RIGHT_PWM);
-            Moter_B(H2_REVERSE_LEFT_PWM);
-            return 0U;
+            /* 连续4黑才计数，过滤弯道瞬时扫过多路黑线。 */
+            h2_marker_active = 1U;
+            h2_marker_candidate_ms = 0U;
+            h2_marker_count++;
+
+            if (h2_marker_count == 1U)
+            {
+                h2_straight_active = 1U;
+                h2_straight_start_ms = now_ms;
+            }
+            else
+            {
+                h2_reverse_active = 1U;
+                h2_reverse_start_ms = now_ms;
+                Moter_A(H2_REVERSE_RIGHT_PWM);
+                Moter_B(H2_REVERSE_LEFT_PWM);
+                return 0U;
+            }
         }
     }
     else if (black_count < H2_MARKER_BLACK_COUNT)
     {
         h2_marker_active = 0U;
+        h2_marker_candidate_ms = 0U;
     }
 
     if (h2_straight_active != 0U)
@@ -715,14 +895,28 @@ static uint8_t State_H5Run(uint32_t now_ms)
             h5_drive_pwm = H5_BASE_PWM;
         }
 
-        if (h5_black_count >= H5_MARKER_BLACK_COUNT)
+        if ((elapsed_ms >= H5_MARKER_ARM_MS) &&
+            (h5_black_count >= H5_MARKER_BLACK_COUNT))
         {
-            /* 第一次4黑立即完成并冻结题目时间，内部继续执行3秒缓停。 */
-            h5_marker_detected = 1U;
-            h5_stop_start_ms = now_ms;
-            h5_stop_start_pwm = h5_drive_pwm;
-            h5_drive_phase = "STOP";
-            first_marker = 1U;
+            if (h5_marker_candidate_ms == 0U)
+            {
+                h5_marker_candidate_ms = now_ms;
+            }
+            else if ((uint32_t)(now_ms - h5_marker_candidate_ms) >=
+                     H5_MARKER_CONFIRM_MS)
+            {
+                /* 连续4黑才完成，过滤弯道瞬时扫过多路黑线。 */
+                h5_marker_detected = 1U;
+                h5_marker_candidate_ms = 0U;
+                h5_stop_start_ms = now_ms;
+                h5_stop_start_pwm = h5_drive_pwm;
+                h5_drive_phase = "STOP";
+                first_marker = 1U;
+            }
+        }
+        else
+        {
+            h5_marker_candidate_ms = 0U;
         }
     }
     else
@@ -753,6 +947,131 @@ static uint8_t State_H5Run(uint32_t now_ms)
     /* 左轮B、右轮A，负参数前进；缓停期间继续循迹。 */
     Moter_A(-h5_drive_pwm - turn);
     Moter_B(-h5_drive_pwm + turn);
+    return first_marker;
+}
+
+static uint8_t State_H6Run(uint32_t now_ms)
+{
+    uint32_t elapsed_ms;
+    int16_t turn;
+    uint8_t first_marker = 0U;
+
+    h6_gray = Gray_Read();
+    h6_black_count = 0U;
+    for (uint8_t i = 0U; i < 8U; i++)
+    {
+        if ((h6_gray & (uint8_t)(1U << i)) == 0U)
+        {
+            h6_black_count++;
+        }
+    }
+
+    if (((uint32_t)(now_ms - start_time_ms) >= H6_BEND_ARM_MS) &&
+        ((h6_gray & 0x20U) == 0U))
+    {
+        h6_bend_state = ((h6_gray & 0x40U) == 0U) ? "R2" : "R1";
+        h6_bend_last_seen_ms = now_ms;
+        if ((h6_bend_active == 0U) &&
+            ((h6_bend_count == 0U) ||
+             ((uint32_t)(now_ms - h6_first_bend_exit_ms) >=
+              H6_SECOND_BEND_MIN_GAP_MS)))
+        {
+            h6_bend_active = 1U;
+            h6_bend_count++;
+            if (h6_bend_count == 1U)
+            {
+                h6_first_bend_enter_ms = now_ms;
+            }
+            else if (h6_bend_count == 2U)
+            {
+                h6_second_bend_enter_ms = now_ms;
+            }
+        }
+    }
+    else
+    {
+        h6_bend_state = "NONE";
+        if ((h6_bend_active != 0U) &&
+            ((uint32_t)(now_ms - h6_bend_last_seen_ms) >=
+             H6_BEND_EXIT_CONFIRM_MS))
+        {
+            h6_bend_active = 0U;
+            if (h6_bend_count == 1U)
+            {
+                h6_first_bend_exit_ms = now_ms;
+            }
+        }
+    }
+
+    if (h6_stop_locked != 0U)
+    {
+        State_H2Brake();
+        return 0U;
+    }
+
+    if (h6_marker_detected == 0U)
+    {
+        elapsed_ms = (uint32_t)(now_ms - start_time_ms);
+        if (elapsed_ms < H6_RAMP_UP_MS)
+        {
+            h6_drive_phase = "UP";
+            h6_drive_pwm = (int16_t)(((uint32_t)H6_BASE_PWM * elapsed_ms) /
+                                     H6_RAMP_UP_MS);
+        }
+        else
+        {
+            h6_drive_phase = "RUN";
+            h6_drive_pwm = H6_BASE_PWM;
+        }
+
+        if (((uint32_t)(now_ms - start_time_ms) >= H6_MARKER_ARM_MS) &&
+            (h6_black_count >= H6_MARKER_BLACK_COUNT))
+        {
+            if (h6_marker_candidate_ms == 0U)
+            {
+                h6_marker_candidate_ms = now_ms;
+            }
+            else if ((uint32_t)(now_ms - h6_marker_candidate_ms) >=
+                     H6_MARKER_CONFIRM_MS)
+            {
+                /* 终点需连续4黑，过滤弯道横切黑线产生的瞬时毛刺。 */
+                h6_marker_detected = 1U;
+                h6_marker_candidate_ms = 0U;
+                h6_stop_start_ms = now_ms;
+                h6_stop_start_pwm = h6_drive_pwm;
+                h6_drive_phase = "STOP";
+                first_marker = 1U;
+            }
+        }
+        else
+        {
+            h6_marker_candidate_ms = 0U;
+        }
+    }
+    else
+    {
+        elapsed_ms = (uint32_t)(now_ms - h6_stop_start_ms);
+        if (elapsed_ms >= H6_STOP_RAMP_MS)
+        {
+            h6_drive_pwm = 0;
+            h6_drive_phase = "DONE";
+            h6_stop_locked = 1U;
+            /* 保留调用方设置的基础补偿，直到判稳后拉平。 */
+            State_H2Brake();
+            return 0U;
+        }
+
+        h6_drive_phase = "STOP";
+        h6_drive_pwm = (int16_t)(((uint32_t)h6_stop_start_pwm *
+                                  (H6_STOP_RAMP_MS - elapsed_ms)) /
+                                 H6_STOP_RAMP_MS);
+    }
+
+    turn = (int16_t)(Gray_GetError() * H6_TRACK_KP);
+    if (turn > h6_drive_pwm) turn = h6_drive_pwm;
+    if (turn < -h6_drive_pwm) turn = -h6_drive_pwm;
+    Moter_A(-h6_drive_pwm - turn);
+    Moter_B(-h6_drive_pwm + turn);
     return first_marker;
 }
 
@@ -802,7 +1121,7 @@ static void State_H5FinishBalance(uint32_t now_ms)
 
     if ((h5_stable_max_cm - h5_stable_min_cm) <= H3_STABLE_RANGE_CM)
     {
-        /* 停车且小球稳定后关闭闭环，舵机自动回到1730us水平位。 */
+        /* 停车且小球稳定后关闭闭环，舵机自动回到1750us水平位。 */
         h5_flat_done = 1U;
         BallControl_SetAngleFeedforward(0.0f);
         BallControl_SetEnabled(0U);
@@ -812,6 +1131,71 @@ static void State_H5FinishBalance(uint32_t now_ms)
         h5_stable_start_ms = now_ms;
         h5_stable_min_cm = position;
         h5_stable_max_cm = position;
+    }
+}
+
+static void State_H6FinishBalance(uint32_t now_ms)
+{
+    float position;
+
+    /* 四黑后的3秒缓停期间也必须持续运行双环，不能保持旧舵机输出。 */
+    State_RunBallControl(now_ms);
+    if (h6_stop_locked == 0U)
+    {
+        return;
+    }
+
+    State_H2Brake();
+    /* H6完成后仍保持目标闭环，不能拉平后让球从目标点滚走。 */
+    State_H6UpdateKick(now_ms);
+    if (h6_flat_done != 0U)
+    {
+        return;
+    }
+    if ((g_shijue_position_valid == 0U) ||
+        (g_shijue_velocity_valid == 0U))
+    {
+        h6_stable_start_ms = 0U;
+        return;
+    }
+
+    position = g_shijue_position_cm;
+    if ((position < -H6_FLAT_TOLERANCE_CM) ||
+        (position > H6_FLAT_TOLERANCE_CM) ||
+        (g_shijue_velocity_cm_s < -H6_FLAT_MAX_SPEED_CM_S) ||
+        (g_shijue_velocity_cm_s > H6_FLAT_MAX_SPEED_CM_S))
+    {
+        h6_stable_start_ms = 0U;
+        return;
+    }
+
+    if (h6_stable_start_ms == 0U)
+    {
+        h6_stable_start_ms = now_ms;
+        h6_stable_min_cm = position;
+        h6_stable_max_cm = position;
+        return;
+    }
+
+    if (position < h6_stable_min_cm) h6_stable_min_cm = position;
+    if (position > h6_stable_max_cm) h6_stable_max_cm = position;
+    if ((uint32_t)(now_ms - h6_stable_start_ms) < H3_STABLE_MS)
+    {
+        return;
+    }
+
+    if ((h6_stable_max_cm - h6_stable_min_cm) <= H6_FLAT_STABLE_RANGE_CM)
+    {
+        /* 与H4/H5一致：停车且球稳定后关闭闭环，舵机回机械水平位。 */
+        h6_flat_done = 1U;
+        BallControl_SetAngleFeedforward(0.0f);
+        BallControl_SetEnabled(0U);
+    }
+    else
+    {
+        h6_stable_start_ms = now_ms;
+        h6_stable_min_cm = position;
+        h6_stable_max_cm = position;
     }
 }
 
@@ -872,7 +1256,7 @@ static void State_H4FinishBalance(uint32_t now_ms)
 
     if ((h4_stable_max_cm - h4_stable_min_cm) <= H3_STABLE_RANGE_CM)
     {
-        /* 与H3相同的判稳条件满足后，关闭闭环并回到1730us机械水平位。 */
+        /* 与H3相同的判稳条件满足后，关闭闭环并回到1750us机械水平位。 */
         h4_flat_done = 1U;
         BallControl_SetAngleFeedforward(0.0f);
         BallControl_SetEnabled(0U);
@@ -921,6 +1305,13 @@ static void State_BeginBalanceCalibration(uint32_t now_ms, uint8_t auto_start)
 {
     BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
     BallControl_SetEnabled(0U);
+
+    /* 进入准备页时同步视觉零点：H3/H4/H5为管中点，H6为所选目标点。 */
+    vision_origin_send_pending =
+        ((current_mode == STATE_MODE_H3_BALL_MOVE) ||
+         (current_mode == STATE_MODE_H4_AB_BALANCE) ||
+         (current_mode == STATE_MODE_H5_LOOP_CENTER) ||
+         (current_mode == STATE_MODE_H6_LOOP_TARGET)) ? 1U : 0U;
 
     balance_roll_zero_deg = 0.0f;
     balance_wx_zero_dps = 0.0f;
@@ -1036,6 +1427,260 @@ static void State_ProcessBalanceCalibration(uint32_t now_ms)
     }
 }
 
+static int8_t State_H6FindPidNode(int16_t target_tenth)
+{
+    uint8_t i;
+
+    for (i = 0U; i < H6_PID_NODE_COUNT; i++)
+    {
+        if (h6_position_pid_nodes[i].target_tenth_cm == target_tenth)
+        {
+            return (int8_t)i;
+        }
+    }
+    return -1;
+}
+
+static void State_H6GetPositionPid(int16_t target_tenth,
+                                   float *kp,
+                                   float *ki,
+                                   float *kd)
+{
+    uint8_t i;
+    H6PositionPidNode_t *left;
+    H6PositionPidNode_t *right;
+    float ratio;
+
+    if (target_tenth <= h6_position_pid_nodes[0].target_tenth_cm)
+    {
+        *kp = h6_position_pid_nodes[0].kp;
+        *ki = h6_position_pid_nodes[0].ki;
+        *kd = h6_position_pid_nodes[0].kd;
+        return;
+    }
+    if (target_tenth >= h6_position_pid_nodes[H6_PID_NODE_COUNT - 1U].target_tenth_cm)
+    {
+        *kp = h6_position_pid_nodes[H6_PID_NODE_COUNT - 1U].kp;
+        *ki = h6_position_pid_nodes[H6_PID_NODE_COUNT - 1U].ki;
+        *kd = h6_position_pid_nodes[H6_PID_NODE_COUNT - 1U].kd;
+        return;
+    }
+
+    for (i = 1U; i < H6_PID_NODE_COUNT; i++)
+    {
+        right = &h6_position_pid_nodes[i];
+        if (target_tenth <= right->target_tenth_cm)
+        {
+            left = &h6_position_pid_nodes[i - 1U];
+            ratio = (float)(target_tenth - left->target_tenth_cm) /
+                    (float)(right->target_tenth_cm - left->target_tenth_cm);
+            *kp = left->kp + (right->kp - left->kp) * ratio;
+            *ki = left->ki + (right->ki - left->ki) * ratio;
+            *kd = left->kd + (right->kd - left->kd) * ratio;
+            return;
+        }
+    }
+}
+
+static void State_H6ApplyPositionPid(void)
+{
+    float kp, ki, kd;
+
+    State_H6GetPositionPid(target_tenth_cm, &kp, &ki, &kd);
+    BallControl_SetPositionPid(kp, ki, kd);
+}
+
+static void State_H6ResetKick(void)
+{
+    h6_kick_state = 0U;
+    h6_still_start_ms = 0U;
+    h6_kick_start_ms = 0U;
+    h6_kick_angle_deg = 0.0f;
+    h6_kick_applied_deg = 0.0f;
+    h6_kick_start_position_cm = 0.0f;
+    h6_kick_count = 0U;
+    BallControl_SetAngleFeedforward(0.0f);
+}
+
+static void State_H6UpdateKick(uint32_t now_ms)
+{
+    float error_cm;
+    float speed_cm_s;
+    float moved_cm;
+    float toward_speed_cm_s;
+    float kick_move_cm;
+    float kick_start_speed_cm_s;
+    float kick_error_cm = H6_KICK_ERROR_CM;
+    float kick_angle_deg;
+    uint8_t kick_max_count;
+    uint32_t kick_elapsed_ms;
+
+    /* -9cm首轮只测双环闭环，运行和停车阶段均不叠加静摩擦补偿。 */
+    if (target_tenth_cm == -90)
+    {
+        h6_kick_state = 0U;
+        h6_still_start_ms = 0U;
+        h6_kick_start_ms = 0U;
+        h6_kick_angle_deg = 0.0f;
+        h6_kick_applied_deg = 0.0f;
+        h6_kick_count = 0U;
+        return;
+    }
+
+    /* -7cm行驶期间由专用前馈控制，避免静摩擦踢球覆盖它；停车后恢复。 */
+    if ((target_tenth_cm == -70) && (h6_stop_locked == 0U))
+    {
+        h6_kick_state = 0U;
+        h6_still_start_ms = 0U;
+        h6_kick_start_ms = 0U;
+        h6_kick_angle_deg = 0.0f;
+        h6_kick_applied_deg = 0.0f;
+        h6_kick_count = 0U;
+        return;
+    }
+
+    if ((target_tenth_cm >= -H6_NEAR_TARGET_TENTH_CM) &&
+        (target_tenth_cm <= H6_NEAR_TARGET_TENTH_CM))
+    {
+        kick_move_cm = H6_NEAR_KICK_MOVE_CM;
+        kick_start_speed_cm_s = H6_NEAR_KICK_START_SPEED_CM_S;
+        kick_max_count = H6_NEAR_KICK_MAX_COUNT;
+    }
+    else
+    {
+        kick_move_cm = H6_KICK_MOVE_CM;
+        kick_start_speed_cm_s = H6_KICK_START_SPEED_CM_S;
+        kick_max_count = H6_KICK_MAX_COUNT;
+    }
+
+    /* -1cm仅在四黑停车后使用专用轻推，避免速度毛刺过早结束。 */
+    if ((target_tenth_cm == -10) && (h6_stop_locked != 0U))
+    {
+        kick_error_cm = H6_MINUS1_STOP_KICK_ERROR_CM;
+        kick_move_cm = H6_MINUS1_STOP_KICK_MOVE_CM;
+        kick_start_speed_cm_s = H6_MINUS1_STOP_KICK_SPEED_CM_S;
+        kick_max_count = H6_MINUS1_STOP_KICK_MAX_COUNT;
+    }
+
+    if (h6_kick_state == 1U)
+    {
+        kick_elapsed_ms = (uint32_t)(now_ms - h6_kick_start_ms);
+        moved_cm = g_shijue_position_cm - h6_kick_start_position_cm;
+        if (h6_kick_angle_deg < 0.0f) moved_cm = -moved_cm;
+        /* 视觉速度符号与位置误差变化一致，朝目标运动时符号与误差相反。 */
+        toward_speed_cm_s = (h6_kick_angle_deg < 0.0f) ?
+                            g_shijue_velocity_cm_s :
+                            -g_shijue_velocity_cm_s;
+
+        if (kick_elapsed_ms < H6_KICK_RAMP_IN_MS)
+        {
+            h6_kick_applied_deg = h6_kick_angle_deg *
+                                  (float)kick_elapsed_ms /
+                                  (float)H6_KICK_RAMP_IN_MS;
+        }
+        else
+        {
+            h6_kick_applied_deg = h6_kick_angle_deg;
+        }
+
+        if ((kick_elapsed_ms < H6_KICK_MAX_MS) &&
+            ((kick_elapsed_ms < H6_KICK_MIN_MS) ||
+             ((moved_cm < kick_move_cm) &&
+              (toward_speed_cm_s < kick_start_speed_cm_s))))
+        {
+            BallControl_SetAngleFeedforward(h6_kick_applied_deg);
+        }
+        else
+        {
+            /* 检测到小球真正启动后渐退前馈，避免目标角瞬间跳变。 */
+            h6_kick_state = 2U;
+            h6_kick_start_ms = now_ms;
+        }
+        return;
+    }
+
+    if (h6_kick_state == 2U)
+    {
+        kick_elapsed_ms = (uint32_t)(now_ms - h6_kick_start_ms);
+        if (kick_elapsed_ms < H6_KICK_RAMP_OUT_MS)
+        {
+            BallControl_SetAngleFeedforward(
+                h6_kick_applied_deg *
+                (float)(H6_KICK_RAMP_OUT_MS - kick_elapsed_ms) /
+                (float)H6_KICK_RAMP_OUT_MS);
+        }
+        else
+        {
+            h6_kick_state = 3U;
+            h6_kick_start_ms = now_ms;
+            h6_kick_angle_deg = 0.0f;
+            h6_kick_applied_deg = 0.0f;
+            BallControl_SetAngleFeedforward(0.0f);
+        }
+        return;
+    }
+
+    if (h6_kick_state == 3U)
+    {
+        BallControl_SetAngleFeedforward(0.0f);
+        if ((uint32_t)(now_ms - h6_kick_start_ms) >= H6_KICK_RETRY_MS)
+        {
+            h6_kick_state = 0U;
+            h6_still_start_ms = 0U;
+        }
+        return;
+    }
+
+    if ((g_shijue_position_valid == 0U) ||
+        (g_shijue_velocity_valid == 0U))
+    {
+        h6_still_start_ms = 0U;
+        return;
+    }
+
+    error_cm = BallControl_GetTargetPosition() - g_shijue_position_cm;
+    speed_cm_s = g_shijue_velocity_cm_s;
+    if (((error_cm > kick_error_cm) || (error_cm < -kick_error_cm)) &&
+        (h6_kick_count < kick_max_count) &&
+        (speed_cm_s <= H6_KICK_MAX_SPEED_CM_S) &&
+        (speed_cm_s >= -H6_KICK_MAX_SPEED_CM_S))
+    {
+        if (h6_still_start_ms == 0U)
+        {
+            h6_still_start_ms = now_ms;
+        }
+        else if ((uint32_t)(now_ms - h6_still_start_ms) >= H6_KICK_WAIT_MS)
+        {
+            /* 实测静摩擦方向：误差为负时叠加负角度，反向同理。 */
+            if ((target_tenth_cm >= -H6_NEAR_TARGET_TENTH_CM) &&
+                (target_tenth_cm <= H6_NEAR_TARGET_TENTH_CM))
+            {
+                kick_angle_deg = ((target_tenth_cm == -10) &&
+                                  (h6_stop_locked != 0U)) ?
+                                 H6_MINUS1_STOP_KICK_ANGLE_DEG :
+                                 H6_NEAR_KICK_ANGLE_DEG;
+                h6_kick_angle_deg = (error_cm < 0.0f) ?
+                                    -kick_angle_deg : kick_angle_deg;
+            }
+            else
+            {
+                h6_kick_angle_deg = (error_cm < 0.0f) ?
+                                    -H6_KICK_ANGLE_DEG : H6_KICK_ANGLE_DEG;
+            }
+            h6_kick_start_position_cm = g_shijue_position_cm;
+            h6_kick_start_ms = now_ms;
+            h6_kick_count++;
+            h6_kick_state = 1U;
+            h6_kick_applied_deg = 0.0f;
+            BallControl_SetAngleFeedforward(0.0f);
+        }
+    }
+    else
+    {
+        h6_still_start_ms = 0U;
+    }
+}
+
 static void State_LoadBallPid(StateMode_t mode)
 {
     switch (mode)
@@ -1056,7 +1701,7 @@ static void State_LoadBallPid(StateMode_t mode)
             break;
 
         case STATE_MODE_H6_LOOP_TARGET:
-            BallControl_SetPositionPid(H6_POSITION_KP, H6_POSITION_KI, H6_POSITION_KD);
+            State_H6ApplyPositionPid();
             BallControl_SetAnglePid(H6_ANGLE_KP, H6_ANGLE_KI, H6_ANGLE_KD);
             break;
 
@@ -1128,6 +1773,306 @@ static float State_GetH5StopFeedforward(uint32_t now_ms)
     return 0.0f;
 }
 
+static float State_GetH6RunFeedforward(uint32_t now_ms)
+{
+    uint32_t balance_elapsed_ms = now_ms - h6_balance_start_ms;
+    uint32_t ramp_elapsed_ms = now_ms - start_time_ms;
+    uint32_t bend_elapsed_ms;
+    float base_trim_deg = 0.0f;
+    float start_trim_deg = 0.0f;
+    float brake_trim_deg = 0.0f;
+
+    /* -9cm独立原始基线：不使用任何运行前馈或补偿。 */
+    if (target_tenth_cm == -90)
+    {
+        return 0.0f;
+    }
+
+    if (target_tenth_cm == -70)
+    {
+        base_trim_deg = H6_MINUS7_BASE_TRIM_DEG;
+        start_trim_deg = H6_MINUS7_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == -50)
+    {
+        base_trim_deg = H6_MINUS5_BASE_TRIM_DEG;
+        start_trim_deg = H6_MINUS5_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == -30)
+    {
+        base_trim_deg = H6_MINUS3_BASE_TRIM_DEG;
+        start_trim_deg = H6_MINUS3_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == -10)
+    {
+        base_trim_deg = H6_MINUS1_BASE_TRIM_DEG;
+        start_trim_deg = H6_MINUS1_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 30)
+    {
+        base_trim_deg = H6_PLUS3_BASE_TRIM_DEG;
+        start_trim_deg = H6_PLUS3_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 50)
+    {
+        base_trim_deg = H6_PLUS5_BASE_TRIM_DEG;
+        start_trim_deg = H6_PLUS5_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 70)
+    {
+        base_trim_deg = H6_PLUS7_BASE_TRIM_DEG;
+        start_trim_deg = H6_PLUS7_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 90)
+    {
+        base_trim_deg = H6_PLUS9_BASE_TRIM_DEG;
+        start_trim_deg = H6_PLUS9_START_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 110)
+    {
+        base_trim_deg = H6_PLUS11_BASE_TRIM_DEG;
+        start_trim_deg = H6_PLUS11_START_TRIM_DEG;
+    }
+
+    if (balance_elapsed_ms < H6_RAMP_FF_IN_MS)
+    {
+        return (base_trim_deg + H6_RAMP_FF_DEG + start_trim_deg) *
+               (float)balance_elapsed_ms / (float)H6_RAMP_FF_IN_MS;
+    }
+    if ((target_tenth_cm == -70) &&
+        (ramp_elapsed_ms < H6_MINUS7_START_FF_OUT_START_MS))
+    {
+        return base_trim_deg + H6_RAMP_FF_DEG + start_trim_deg;
+    }
+    if ((target_tenth_cm == -70) &&
+        (ramp_elapsed_ms < H6_MINUS7_START_FF_OUT_END_MS))
+    {
+        float transition = (float)(ramp_elapsed_ms -
+                           H6_MINUS7_START_FF_OUT_START_MS) /
+                           (float)(H6_MINUS7_START_FF_OUT_END_MS -
+                                   H6_MINUS7_START_FF_OUT_START_MS);
+        return base_trim_deg + H6_RAMP_FF_DEG +
+               (H6_RUN_BIAS_FF_DEG - H6_RAMP_FF_DEG) * transition +
+               start_trim_deg * (1.0f - transition);
+    }
+    if ((target_tenth_cm != -70) &&
+        (ramp_elapsed_ms < (H6_RAMP_UP_MS - H6_RAMP_FF_OUT_MS)))
+    {
+        return base_trim_deg + H6_RAMP_FF_DEG + start_trim_deg;
+    }
+    if ((target_tenth_cm != -70) && (ramp_elapsed_ms < H6_RAMP_UP_MS))
+    {
+        float transition = (float)(ramp_elapsed_ms -
+                           (H6_RAMP_UP_MS - H6_RAMP_FF_OUT_MS)) /
+                           (float)H6_RAMP_FF_OUT_MS;
+        return base_trim_deg + H6_RAMP_FF_DEG +
+               (H6_RUN_BIAS_FF_DEG - H6_RAMP_FF_DEG) * transition +
+               start_trim_deg * (1.0f - transition);
+    }
+    if ((target_tenth_cm == -70) &&
+        (h6_second_bend_enter_ms != 0U))
+    {
+        bend_elapsed_ms = (uint32_t)(now_ms - h6_second_bend_enter_ms);
+        if (bend_elapsed_ms < H6_MINUS7_SECOND_EXIT_RAMP_MS)
+        {
+            brake_trim_deg = H6_MINUS7_BETWEEN_TRIM_DEG *
+                             (float)(H6_MINUS7_SECOND_EXIT_RAMP_MS -
+                                     bend_elapsed_ms) /
+                             (float)H6_MINUS7_SECOND_EXIT_RAMP_MS;
+        }
+    }
+    else if ((target_tenth_cm == -70) &&
+             (h6_first_bend_exit_ms != 0U))
+    {
+        bend_elapsed_ms = (uint32_t)(now_ms - h6_first_bend_exit_ms);
+        if (bend_elapsed_ms < H6_MINUS7_BETWEEN_DELAY_MS)
+        {
+            brake_trim_deg = H6_MINUS7_EXIT_TRIM_DEG;
+        }
+        else if (bend_elapsed_ms < (H6_MINUS7_BETWEEN_DELAY_MS +
+                                    H6_MINUS7_BETWEEN_RAMP_MS))
+        {
+            float transition = (float)(bend_elapsed_ms -
+                               H6_MINUS7_BETWEEN_DELAY_MS) /
+                               (float)H6_MINUS7_BETWEEN_RAMP_MS;
+            brake_trim_deg = H6_MINUS7_EXIT_TRIM_DEG +
+                             (H6_MINUS7_BETWEEN_TRIM_DEG -
+                              H6_MINUS7_EXIT_TRIM_DEG) * transition;
+        }
+        else
+        {
+            brake_trim_deg = H6_MINUS7_BETWEEN_TRIM_DEG;
+        }
+    }
+    else if ((target_tenth_cm == -70) &&
+             (h6_first_bend_enter_ms != 0U))
+    {
+        bend_elapsed_ms = (uint32_t)(now_ms - h6_first_bend_enter_ms);
+        if (bend_elapsed_ms < H6_MINUS7_BEND_LATE_DELAY_MS)
+        {
+            brake_trim_deg = H6_MINUS7_PRE_BEND_TRIM_DEG;
+        }
+        else if (bend_elapsed_ms < (H6_MINUS7_BEND_LATE_DELAY_MS +
+                                    H6_MINUS7_EXIT_RAMP_MS))
+        {
+            float transition = (float)(bend_elapsed_ms -
+                               H6_MINUS7_BEND_LATE_DELAY_MS) /
+                               (float)H6_MINUS7_EXIT_RAMP_MS;
+            brake_trim_deg = H6_MINUS7_PRE_BEND_TRIM_DEG +
+                             (H6_MINUS7_EXIT_TRIM_DEG -
+                              H6_MINUS7_PRE_BEND_TRIM_DEG) * transition;
+        }
+        else
+        {
+            brake_trim_deg = H6_MINUS7_EXIT_TRIM_DEG;
+        }
+    }
+    else if ((target_tenth_cm == -70) &&
+             (ramp_elapsed_ms >= H6_MINUS7_PRE_BEND_START_MS))
+    {
+        bend_elapsed_ms = ramp_elapsed_ms - H6_MINUS7_PRE_BEND_START_MS;
+        if (bend_elapsed_ms < H6_MINUS7_PRE_BEND_RAMP_MS)
+        {
+            brake_trim_deg = H6_MINUS7_PRE_BEND_TRIM_DEG *
+                             (float)bend_elapsed_ms /
+                             (float)H6_MINUS7_PRE_BEND_RAMP_MS;
+        }
+        else
+        {
+            brake_trim_deg = H6_MINUS7_PRE_BEND_TRIM_DEG;
+        }
+    }
+    else if ((target_tenth_cm == -50) &&
+        (ramp_elapsed_ms >= H6_MINUS5_TRANSITION_START_MS) &&
+        (ramp_elapsed_ms < H6_MINUS5_TRANSITION_END_MS))
+    {
+        if (ramp_elapsed_ms < (H6_MINUS5_TRANSITION_START_MS +
+                               H6_MINUS5_TRANSITION_RAMP_MS))
+        {
+            brake_trim_deg = H6_MINUS5_TRANSITION_TRIM_DEG *
+                             (float)(ramp_elapsed_ms -
+                                     H6_MINUS5_TRANSITION_START_MS) /
+                             (float)H6_MINUS5_TRANSITION_RAMP_MS;
+        }
+        else if (ramp_elapsed_ms < (H6_MINUS5_TRANSITION_END_MS -
+                                    H6_MINUS5_TRANSITION_RAMP_MS))
+        {
+            brake_trim_deg = H6_MINUS5_TRANSITION_TRIM_DEG;
+        }
+        else
+        {
+            brake_trim_deg = H6_MINUS5_TRANSITION_TRIM_DEG *
+                             (float)(H6_MINUS5_TRANSITION_END_MS -
+                                     ramp_elapsed_ms) /
+                             (float)H6_MINUS5_TRANSITION_RAMP_MS;
+        }
+    }
+    else if ((target_tenth_cm == 110) &&
+        (ramp_elapsed_ms >= H6_PLUS11_BRAKE_START_MS) &&
+        (ramp_elapsed_ms < H6_PLUS11_BRAKE_END_MS))
+    {
+        if (ramp_elapsed_ms < (H6_PLUS11_BRAKE_START_MS +
+                               H6_PLUS11_BRAKE_RAMP_MS))
+        {
+            brake_trim_deg = H6_PLUS11_BRAKE_TRIM_DEG *
+                             (float)(ramp_elapsed_ms -
+                                     H6_PLUS11_BRAKE_START_MS) /
+                             (float)H6_PLUS11_BRAKE_RAMP_MS;
+        }
+        else if (ramp_elapsed_ms < (H6_PLUS11_BRAKE_END_MS -
+                                    H6_PLUS11_BRAKE_RAMP_MS))
+        {
+            brake_trim_deg = H6_PLUS11_BRAKE_TRIM_DEG;
+        }
+        else
+        {
+            brake_trim_deg = H6_PLUS11_BRAKE_TRIM_DEG *
+                             (float)(H6_PLUS11_BRAKE_END_MS -
+                                     ramp_elapsed_ms) /
+                             (float)H6_PLUS11_BRAKE_RAMP_MS;
+        }
+    }
+    return base_trim_deg + H6_RUN_BIAS_FF_DEG + brake_trim_deg;
+}
+
+static float State_GetH6StopFeedforward(uint32_t now_ms)
+{
+    uint32_t stop_elapsed_ms = now_ms - h6_stop_start_ms;
+    float base_trim_deg = 0.0f;
+    float stop_trim_deg = 0.0f;
+
+    /* -9cm独立原始基线：停车阶段同样只保留双环闭环。 */
+    if (target_tenth_cm == -90)
+    {
+        return 0.0f;
+    }
+
+    if (target_tenth_cm == -70)
+    {
+        base_trim_deg = H6_MINUS7_BASE_TRIM_DEG;
+        stop_trim_deg = H6_MINUS7_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == -50)
+    {
+        base_trim_deg = H6_MINUS5_BASE_TRIM_DEG;
+        stop_trim_deg = H6_MINUS5_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == -30)
+    {
+        base_trim_deg = H6_MINUS3_BASE_TRIM_DEG;
+        stop_trim_deg = H6_MINUS3_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == -10)
+    {
+        base_trim_deg = H6_MINUS1_BASE_TRIM_DEG;
+        stop_trim_deg = H6_MINUS1_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 30)
+    {
+        base_trim_deg = H6_PLUS3_BASE_TRIM_DEG;
+        stop_trim_deg = H6_PLUS3_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 50)
+    {
+        base_trim_deg = H6_PLUS5_BASE_TRIM_DEG;
+        stop_trim_deg = H6_PLUS5_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 70)
+    {
+        base_trim_deg = H6_PLUS7_BASE_TRIM_DEG;
+        stop_trim_deg = H6_PLUS7_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 90)
+    {
+        base_trim_deg = H6_PLUS9_BASE_TRIM_DEG;
+        stop_trim_deg = H6_PLUS9_STOP_TRIM_DEG;
+    }
+    else if (target_tenth_cm == 110)
+    {
+        base_trim_deg = H6_PLUS11_BASE_TRIM_DEG;
+        stop_trim_deg = H6_PLUS11_STOP_TRIM_DEG;
+    }
+
+    if (stop_elapsed_ms < H6_STOP_FF_IN_MS)
+    {
+        return base_trim_deg + (H6_STOP_FF_DEG + stop_trim_deg) *
+               (float)stop_elapsed_ms / (float)H6_STOP_FF_IN_MS;
+    }
+    if (stop_elapsed_ms < (H6_STOP_RAMP_MS - H6_STOP_FF_OUT_MS))
+    {
+        return base_trim_deg + H6_STOP_FF_DEG + stop_trim_deg;
+    }
+    if (stop_elapsed_ms < H6_STOP_RAMP_MS)
+    {
+        return base_trim_deg + (H6_STOP_FF_DEG *
+                (float)(H6_STOP_RAMP_MS - stop_elapsed_ms) /
+                (float)H6_STOP_FF_OUT_MS) +
+               stop_trim_deg * (float)(H6_STOP_RAMP_MS - stop_elapsed_ms) /
+               (float)H6_STOP_FF_OUT_MS;
+    }
+    return base_trim_deg;
+}
+
 static void State_ActivateStart(uint32_t now_ms)
 {
     start_delay_active = 0U;
@@ -1164,6 +2109,7 @@ static void State_ActivateStart(uint32_t now_ms)
         h5_stop_start_pwm = 0;
         h5_drive_phase = "UP";
         h5_marker_detected = 0U;
+        h5_marker_candidate_ms = 0U;
         h5_stop_locked = 0U;
         h5_black_count = 0U;
         h5_gray = Gray_Read();
@@ -1199,9 +2145,36 @@ static void State_ActivateStart(uint32_t now_ms)
     }
     else if (current_mode == STATE_MODE_H6_LOOP_TARGET)
     {
+        State_H6ResetKick();
+        h6_drive_pwm = 0;
+        h6_stop_start_pwm = 0;
+        h6_drive_phase = "UP";
+        h6_marker_detected = 0U;
+        h6_marker_candidate_ms = 0U;
+        h6_stop_locked = 0U;
+        h6_black_count = 0U;
+        h6_gray = Gray_Read();
+        h6_bend_state = "NONE";
+        h6_bend_active = 0U;
+        h6_bend_count = 0U;
+        h6_bend_last_seen_ms = 0U;
+        h6_first_bend_enter_ms = 0U;
+        h6_first_bend_exit_ms = 0U;
+        h6_second_bend_enter_ms = 0U;
+        h6_stop_start_ms = 0U;
+        h6_stable_start_ms = 0U;
+        h6_stable_min_cm = 0.0f;
+        h6_stable_max_cm = 0.0f;
+        h6_flat_done = 0U;
+        h6_balance_started = 0U;
+        h6_balance_start_ms = 0U;
+        h6_start_encoder3 = Encoder3_GetTotal();
+        h6_start_encoder4 = Encoder4_GetTotal();
         State_LoadBallPid(current_mode);
+        BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+        BallControl_SetAngleFeedforward(0.0f);
         BallControl_SetTargetPosition(0.0f);
-        BallControl_SetEnabled(1U);
+        BallControl_SetEnabled(0U);
     }
     display_dirty = 1U;
 }
@@ -1249,7 +2222,11 @@ static void State_SetTarget(int16_t new_target_tenth_cm)
 {
     if (new_target_tenth_cm > 125) new_target_tenth_cm = 125;
     if (new_target_tenth_cm < -125) new_target_tenth_cm = -125;
+    /* 端部不保留0.5 cm死区：达到+/-12 cm就把视觉原点写到物理管端。 */
+    if (new_target_tenth_cm >= H6_END_TARGET_TENTH_CM) new_target_tenth_cm = 125;
+    if (new_target_tenth_cm <= -H6_END_TARGET_TENTH_CM) new_target_tenth_cm = -125;
     target_tenth_cm = new_target_tenth_cm;
+    State_H6ResetKick();
 }
 
 static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
@@ -1273,6 +2250,8 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
             stopped_elapsed_ms = 0U;
             if (current_mode == STATE_MODE_H6_LOOP_TARGET)
             {
+                /* H6下地动态测试当前从-9.0 cm开始。 */
+                State_SetTarget(-90);
                 current_page = STATE_PAGE_TARGET_SET;
             }
             else
@@ -1297,7 +2276,6 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
         else if (key == KEY_EVENT_3)
         {
             /* H6目标为相对中点坐标，进入准备界面后发送给视觉设置绝对原点。 */
-            h6_target_send_pending = 1U;
             State_BeginBalanceCalibration(now_ms, 0U);
             display_dirty = 1U;
         }
@@ -1350,8 +2328,12 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
                 State_H2Brake();
                 BallControl_SetEnabled(0U);
             }
-            else if ((current_mode == STATE_MODE_H6_LOOP_TARGET) ||
-                     (current_mode == STATE_MODE_H3_BALL_MOVE))
+            else if (current_mode == STATE_MODE_H6_LOOP_TARGET)
+            {
+                State_H2Brake();
+                BallControl_SetEnabled(0U);
+            }
+            else if (current_mode == STATE_MODE_H3_BALL_MOVE)
             {
                 BallControl_SetEnabled(0U);
             }
@@ -1396,13 +2378,42 @@ static void State_RunMode(uint32_t now_ms)
         break;
 
     case STATE_MODE_H6_LOOP_TARGET:
+    {
+        uint8_t finished = State_H6Run(now_ms);
+
+        if (h6_balance_started == 0U)
+        {
+            if (State_WheelHasMoved(h6_start_encoder3,
+                                    h6_start_encoder4) == 0U)
+            {
+                BallControl_SetEnabled(0U);
+                BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+            }
+            else
+            {
+                h6_balance_started = 1U;
+                h6_balance_start_ms = now_ms;
+                BallControl_SetEnabled(1U);
+            }
+        }
+
+        if (h6_balance_started != 0U)
+        {
+            BallControl_SetAngleFeedforward(State_GetH6RunFeedforward(now_ms));
+            State_H6UpdateKick(now_ms);
+            State_RunBallControl(now_ms);
+        }
+
+        if (finished != 0U)
+        {
+            /* 第一次4黑冻结本圈时间，完成页继续内部缓停和稳球。 */
+            State_End(STATE_PAGE_FINISHED, now_ms);
+        }
+        break;
+    }
+
     case STATE_MODE_H3_BALL_MOVE:
         State_RunBallControl(now_ms);
-
-        if (current_mode != STATE_MODE_H3_BALL_MOVE)
-        {
-            break;
-        }
 
         if (h3_centering != 0U)
         {
@@ -1596,21 +2607,82 @@ static void State_RunMode(uint32_t now_ms)
     }
 }
 
-static void State_SendH6Target(void)
+typedef struct
+{
+    int16_t target_tenth_cm;
+    int16_t correction_tenth_cm;
+} VisionTargetCorrection_t;
+
+static int16_t State_CorrectVisionTarget(int16_t target_tenth_cm)
+{
+    static const VisionTargetCorrection_t corrections[] =
+    {
+        {-110,  1}, {-100,  2}, {-90,  3}, {-80,  2}, {-70,  3},
+        { -60,  2}, { -50,  2}, {-30,  1}, {-20,  0}, { 20,  0},
+        {  30,  1}, {  40,  1}, { 50,  0}, { 60, -1}, { 70, -1},
+        {  80,  0}, {  90,  1}, {100,  2}, {110,  4}
+    };
+    const uint8_t count = (uint8_t)(sizeof(corrections) /
+                                    sizeof(corrections[0]));
+    uint8_t i;
+    float correction;
+    int16_t rounded_correction;
+
+    /* +/-12 cm以上已映射到物理管端，端点不能继续叠加刻度补偿。 */
+    if ((target_tenth_cm <= -125) || (target_tenth_cm >= 125))
+    {
+        return target_tenth_cm;
+    }
+
+    if (target_tenth_cm <= corrections[0].target_tenth_cm)
+    {
+        return target_tenth_cm + corrections[0].correction_tenth_cm;
+    }
+    if (target_tenth_cm >= corrections[count - 1U].target_tenth_cm)
+    {
+        return target_tenth_cm + corrections[count - 1U].correction_tenth_cm;
+    }
+
+    for (i = 1U; i < count; i++)
+    {
+        const VisionTargetCorrection_t *left = &corrections[i - 1U];
+        const VisionTargetCorrection_t *right = &corrections[i];
+
+        if (target_tenth_cm <= right->target_tenth_cm)
+        {
+            correction = (float)left->correction_tenth_cm +
+                         (float)(right->correction_tenth_cm -
+                                 left->correction_tenth_cm) *
+                         (float)(target_tenth_cm - left->target_tenth_cm) /
+                         (float)(right->target_tenth_cm -
+                                 left->target_tenth_cm);
+            rounded_correction = (int16_t)(correction +
+                                 ((correction >= 0.0f) ? 0.5f : -0.5f));
+            return target_tenth_cm + rounded_correction;
+        }
+    }
+
+    return target_tenth_cm;
+}
+
+static void State_SendVisionOrigin(void)
 {
     uint16_t origin_tenth_cm;
+    int16_t vision_target_tenth_cm;
 
-    if ((h6_target_send_pending == 0U) ||
-        (current_mode != STATE_MODE_H6_LOOP_TARGET) ||
-        (current_page != STATE_PAGE_READY))
+    if (vision_origin_send_pending == 0U)
     {
         return;
     }
 
-    origin_tenth_cm = (uint16_t)(125 + target_tenth_cm);
+    vision_target_tenth_cm = (current_mode == STATE_MODE_H6_LOOP_TARGET) ?
+                             State_CorrectVisionTarget(target_tenth_cm) : 0;
+
+    origin_tenth_cm = (current_mode == STATE_MODE_H6_LOOP_TARGET) ?
+                      (uint16_t)(125 + vision_target_tenth_cm) : 125U;
     if (Shijue_SetOriginTenthCm(origin_tenth_cm) != 0U)
     {
-        h6_target_send_pending = 0U;
+        vision_origin_send_pending = 0U;
     }
 }
 
@@ -1636,6 +2708,8 @@ static void State_ProcessDebugCommand(void)
 {
     float kp, ki, kd;
     float target;
+    int16_t command_target_tenth;
+    int8_t node_index;
     float position_kp, position_ki, position_kd;
     float angle_kp, angle_ki, angle_kd;
     char a_kp[12], a_ki[12], a_kd[12];
@@ -1647,7 +2721,100 @@ static void State_ProcessDebugCommand(void)
 
     if ((debug_command_ready == 0U) || (debug_reply_ready != 0U)) return;
 
-    if ((strncmp(debug_command, "APID", 4U) == 0) &&
+    if (strncmp(debug_command, "H6TG", 4U) == 0)
+    {
+        text = &debug_command[4];
+        if ((current_mode == STATE_MODE_H6_LOOP_TARGET) &&
+            (State_ParseFloat(&text, &target) != 0U) &&
+            (*State_SkipSpaces(text) == '\0') &&
+            (target >= -12.5f) && (target <= 12.5f))
+        {
+            State_SetTarget(State_CmToTenth(target));
+            State_H6ApplyPositionPid();
+            BallControl_SetAutoTargetAngle();
+            BallControl_SetTargetPosition(0.0f);
+            vision_origin_send_pending = 1U;
+            BallControl_GetPositionPid(&kp, &ki, &kd);
+            State_FormatSignedCenti(target_text, sizeof(target_text),
+                                    (float)target_tenth_cm / 10.0f);
+            State_FormatSignedCenti(p_kp, sizeof(p_kp), kp);
+            State_FormatSignedCenti(p_ki, sizeof(p_ki), ki);
+            State_FormatSignedCenti(p_kd, sizeof(p_kd), kd);
+            length = snprintf(debug_reply, sizeof(debug_reply),
+                              "OK H6TG=%s P=%s,%s,%s\r\n",
+                              target_text, p_kp, p_ki, p_kd);
+        }
+        else
+        {
+            length = snprintf(debug_reply, sizeof(debug_reply), "ERR H6TG\r\n");
+        }
+    }
+    else if (strncmp(debug_command, "H6PID", 5U) == 0)
+    {
+        text = &debug_command[5];
+        if ((State_ParseFloat(&text, &target) != 0U) &&
+            (State_ParseFloat(&text, &kp) != 0U) &&
+            (State_ParseFloat(&text, &ki) != 0U) &&
+            (State_ParseFloat(&text, &kd) != 0U) &&
+            (*State_SkipSpaces(text) == '\0') &&
+            (kp >= 0.0f) && (ki >= 0.0f) && (kd >= 0.0f))
+        {
+            command_target_tenth = State_CmToTenth(target);
+            node_index = State_H6FindPidNode(command_target_tenth);
+        }
+        else
+        {
+            node_index = -1;
+        }
+
+        if (node_index >= 0)
+        {
+            h6_position_pid_nodes[(uint8_t)node_index].kp = kp;
+            h6_position_pid_nodes[(uint8_t)node_index].ki = ki;
+            h6_position_pid_nodes[(uint8_t)node_index].kd = kd;
+            if (current_mode == STATE_MODE_H6_LOOP_TARGET)
+            {
+                State_H6ApplyPositionPid();
+            }
+            State_FormatSignedCenti(target_text, sizeof(target_text), target);
+            State_FormatSignedCenti(p_kp, sizeof(p_kp), kp);
+            State_FormatSignedCenti(p_ki, sizeof(p_ki), ki);
+            State_FormatSignedCenti(p_kd, sizeof(p_kd), kd);
+            length = snprintf(debug_reply, sizeof(debug_reply),
+                              "OK H6PID=%s P=%s,%s,%s\r\n",
+                              target_text, p_kp, p_ki, p_kd);
+        }
+        else
+        {
+            length = snprintf(debug_reply, sizeof(debug_reply), "ERR H6PID NODE\r\n");
+        }
+    }
+    else if (strncmp(debug_command, "H6GET", 5U) == 0)
+    {
+        text = &debug_command[5];
+        if ((State_ParseFloat(&text, &target) != 0U) &&
+            (*State_SkipSpaces(text) == '\0') &&
+            (target >= -12.5f) && (target <= 12.5f))
+        {
+            command_target_tenth = State_CmToTenth(target);
+            node_index = State_H6FindPidNode(command_target_tenth);
+            State_H6GetPositionPid(command_target_tenth, &kp, &ki, &kd);
+            State_FormatSignedCenti(target_text, sizeof(target_text),
+                                    (float)command_target_tenth / 10.0f);
+            State_FormatSignedCenti(p_kp, sizeof(p_kp), kp);
+            State_FormatSignedCenti(p_ki, sizeof(p_ki), ki);
+            State_FormatSignedCenti(p_kd, sizeof(p_kd), kd);
+            length = snprintf(debug_reply, sizeof(debug_reply),
+                              "H6GET T=%s NODE=%u P=%s,%s,%s\r\n",
+                              target_text, (unsigned int)(node_index >= 0),
+                              p_kp, p_ki, p_kd);
+        }
+        else
+        {
+            length = snprintf(debug_reply, sizeof(debug_reply), "ERR H6GET\r\n");
+        }
+    }
+    else if ((strncmp(debug_command, "APID", 4U) == 0) &&
         (State_ParsePid(&debug_command[4], &kp, &ki, &kd) != 0U))
     {
         BallControl_SetAnglePid(kp, ki, kd);
@@ -1713,6 +2880,29 @@ static void State_ProcessDebugCommand(void)
         State_BeginBalanceCalibration(BSP_TimeMs(), 1U);
         length = snprintf(debug_reply, sizeof(debug_reply), "OK ZERO\r\n");
     }
+    else if (strcmp(debug_command, "STOP") == 0)
+    {
+        uint32_t now_ms = BSP_TimeMs();
+
+        /* 调试急停：结束当前运行，锁止车轮并让舵机立即回机械中位。 */
+        State_H2Brake();
+        BallControl_SetAngleFeedforward(0.0f);
+        BallControl_SetEnabled(0U);
+        BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+        if (current_page == STATE_PAGE_RUNNING)
+        {
+            State_End(STATE_PAGE_STOPPED, now_ms);
+        }
+        else if ((current_mode != STATE_MODE_NONE) &&
+                 (current_page != STATE_PAGE_SELECT) &&
+                 (current_page != STATE_PAGE_TARGET_SET))
+        {
+            start_delay_active = 0U;
+            current_page = STATE_PAGE_STOPPED;
+            display_dirty = 1U;
+        }
+        length = snprintf(debug_reply, sizeof(debug_reply), "OK STOP\r\n");
+    }
     else if (strcmp(debug_command, "GET") == 0)
     {
         BallControl_GetAnglePid(&angle_kp, &angle_ki, &angle_kd);
@@ -1774,6 +2964,8 @@ static void State_SendBalanceDebug(uint32_t now_ms)
     char h3_turn_position[12];
     char h3_stable_min[12];
     char h3_stable_max[12];
+    char h6_physical_target[12];
+    char position_kp[12], position_ki[12], position_kd[12];
     int length;
 
     if ((debug_reply_ready != 0U) ||
@@ -1827,6 +3019,47 @@ static void State_SendBalanceDebug(uint32_t now_ms)
                           h3_turn_position,
                           h3_stable_min,
                           h3_stable_max);
+    }
+    else if (current_mode == STATE_MODE_H6_LOOP_TARGET)
+    {
+        float kp, ki, kd;
+        const char *state;
+
+        BallControl_GetPositionPid(&kp, &ki, &kd);
+        State_FormatSignedCenti(h6_physical_target, sizeof(h6_physical_target),
+                                (float)target_tenth_cm / 10.0f);
+        State_FormatSignedCenti(position_kp, sizeof(position_kp), kp);
+        State_FormatSignedCenti(position_ki, sizeof(position_ki), ki);
+        State_FormatSignedCenti(position_kd, sizeof(position_kd), kd);
+        if (current_page == STATE_PAGE_RUNNING) state = "RUN";
+        else if (current_page == STATE_PAGE_FINISHED) state = "FINISH";
+        else if (current_page == STATE_PAGE_STOPPED) state = "STOPPED";
+        else state = "READY";
+        length = snprintf((char *)balance_debug_buffer,
+                          sizeof(balance_debug_buffer),
+                          "H6 S=%s D=%s BP=%d G=%02X GE=%d BLACK=%u MARK=%u FLAT=%u BEND=%s T=%s P=%s V=%s E=%s KP=%s KI=%s KD=%s TG=%s A=%s W=%s PWM=%u K=%u PV=%u VV=%u VR=%lu/%lu IMU=%u AGE=%lu RX=%lu/%lu UE=%lu/%lu/%lu\r\n",
+                          state, h6_drive_phase, (int)h6_drive_pwm,
+                          (unsigned int)h6_gray, (int)Gray_GetError(),
+                          (unsigned int)h6_black_count,
+                          (unsigned int)h6_marker_detected,
+                          (unsigned int)h6_flat_done,
+                          h6_bend_state,
+                          h6_physical_target, position, velocity, position_error,
+                          position_kp, position_ki, position_kd,
+                          target_angle, pipe_angle, pipe_gyro,
+                          (unsigned int)BallControl_GetServoPulse(),
+                          (unsigned int)h6_kick_state,
+                          (unsigned int)g_shijue_position_valid,
+                          (unsigned int)g_shijue_velocity_valid,
+                          (unsigned long)g_shijue_position_reject_count,
+                          (unsigned long)g_shijue_velocity_reject_count,
+                          (unsigned int)(angleValid && gyroValid),
+                          (unsigned long)(now_ms - lastPacketTime),
+                          (unsigned long)debug_rx_event_count,
+                          (unsigned long)debug_rx_byte_count,
+                          (unsigned long)g_debug_uart_error_count,
+                          (unsigned long)g_debug_rx_restart_fail_count,
+                          (unsigned long)g_debug_uart_last_error);
     }
     else
     {
@@ -2183,7 +3416,38 @@ void State_Init(void)
     current_page = STATE_PAGE_SELECT;
     selected_item = 2U;
     target_tenth_cm = 0;
-    h6_target_send_pending = 0U;
+    vision_origin_send_pending = 0U;
+    h6_kick_state = 0U;
+    h6_still_start_ms = 0U;
+    h6_kick_start_ms = 0U;
+    h6_kick_angle_deg = 0.0f;
+    h6_kick_applied_deg = 0.0f;
+    h6_kick_start_position_cm = 0.0f;
+    h6_kick_count = 0U;
+    h6_drive_pwm = 0;
+    h6_stop_start_pwm = 0;
+    h6_drive_phase = "IDLE";
+    h6_marker_detected = 0U;
+    h6_marker_candidate_ms = 0U;
+    h6_stop_locked = 0U;
+    h6_black_count = 0U;
+    h6_gray = Gray_Read();
+    h6_bend_state = "NONE";
+    h6_bend_active = 0U;
+    h6_bend_count = 0U;
+    h6_bend_last_seen_ms = 0U;
+    h6_first_bend_enter_ms = 0U;
+    h6_first_bend_exit_ms = 0U;
+    h6_second_bend_enter_ms = 0U;
+    h6_stop_start_ms = 0U;
+    h6_stable_start_ms = 0U;
+    h6_stable_min_cm = 0.0f;
+    h6_stable_max_cm = 0.0f;
+    h6_flat_done = 0U;
+    h6_balance_started = 0U;
+    h6_balance_start_ms = 0U;
+    h6_start_encoder3 = 0;
+    h6_start_encoder4 = 0;
     balance_roll_zero_deg = 0.0f;
     balance_wx_zero_dps = 0.0f;
     balance_roll_zero_valid = 0U;
@@ -2215,6 +3479,7 @@ void State_Init(void)
     h5_stop_start_pwm = 0;
     h5_drive_phase = "IDLE";
     h5_marker_detected = 0U;
+    h5_marker_candidate_ms = 0U;
     h5_stop_locked = 0U;
     h5_black_count = 0U;
     h5_gray = Gray_Read();
@@ -2249,10 +3514,9 @@ void State_RunCurrent(void)
     KeyEvent_t key = BSP_KeyScan(now_ms);
 
     State_HandleKey(key, now_ms);
-    /* USART2调参协议暂时停用，代码保留供后续恢复。 */
-    // State_ProcessDebugCommand();
-    // State_SendDebugReply();
-    State_SendH6Target();
+    State_ProcessDebugCommand();
+    State_SendDebugReply();
+    State_SendVisionOrigin();
     State_ProcessBalanceCalibration(now_ms);
 
     if (current_page == STATE_PAGE_RUNNING)
@@ -2265,7 +3529,8 @@ void State_RunCurrent(void)
     }
     else if (((current_mode == STATE_MODE_H2_CAR_LOOP) ||
               (current_mode == STATE_MODE_H4_AB_BALANCE) ||
-              (current_mode == STATE_MODE_H5_LOOP_CENTER)) &&
+              (current_mode == STATE_MODE_H5_LOOP_CENTER) ||
+              (current_mode == STATE_MODE_H6_LOOP_TARGET)) &&
              ((current_page == STATE_PAGE_STOPPED) ||
               (current_page == STATE_PAGE_FINISHED)))
     {
@@ -2284,13 +3549,23 @@ void State_RunCurrent(void)
             (void)State_H5Run(now_ms);
             State_H5FinishBalance(now_ms);
         }
+        else if ((current_mode == STATE_MODE_H6_LOOP_TARGET) &&
+                 (current_page == STATE_PAGE_FINISHED))
+        {
+            BallControl_SetAngleFeedforward(State_GetH6StopFeedforward(now_ms));
+            (void)State_H6Run(now_ms);
+            State_H6FinishBalance(now_ms);
+        }
         else
         {
             State_H2Brake();
         }
     }
 
-    // State_SendBalanceDebug(now_ms);
+    if (current_mode == STATE_MODE_H6_LOOP_TARGET)
+    {
+        State_SendBalanceDebug(now_ms);
+    }
     // State_SendEncoderTotal(now_ms);
     State_SendH4Debug(now_ms);
     State_SendH5Debug(now_ms);

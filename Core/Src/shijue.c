@@ -7,6 +7,11 @@
 #include <string.h>
 
 #define SHIJUE_VELOCITY_DEADBAND_CM_S  0.2f
+#define SHIJUE_MAX_VELOCITY_CM_S      30.0f
+#define SHIJUE_MAX_POSITION_STEP_CM    2.0f
+#define SHIJUE_POSITION_CONFIRM_CM     0.5f
+#define SHIJUE_POSITION_CONFIRM_COUNT    3U
+#define SHIJUE_FAULT_HOLD_MS           1000U
 
 volatile float g_shijue_position_cm = 0.0f;
 volatile float g_shijue_velocity_cm_s = 0.0f;
@@ -15,6 +20,8 @@ volatile uint8_t g_shijue_velocity_valid = 0U;
 volatile uint8_t g_shijue_last_type = 0U;
 volatile uint8_t g_shijue_last_seq = 0U;
 volatile uint8_t g_shijue_error_flag = 0U;
+volatile uint32_t g_shijue_position_reject_count = 0U;
+volatile uint32_t g_shijue_velocity_reject_count = 0U;
 
 /* Legacy symbols kept so the disabled old state code still compiles. */
 volatile uint16_t g_shijue_count = 0U;
@@ -37,6 +44,42 @@ static uint8_t rx_frame[SHIJUE_FRAME_SIZE];
 static uint8_t rx_frame_len;
 static uint8_t tx_frame[SHIJUE_FRAME_SIZE];
 static uint8_t tx_seq;
+static float last_position_cm;
+static float position_candidate_cm;
+static uint8_t position_filter_valid;
+static uint8_t position_candidate_count;
+static uint32_t vision_fault_until_ms;
+
+static float Shijue_Abs(float value)
+{
+    return (value < 0.0f) ? -value : value;
+}
+
+static void Shijue_RejectPosition(uint32_t now_ms)
+{
+    g_shijue_position_valid = 0U;
+    g_shijue_velocity_valid = 0U;
+    g_shijue_position_reject_count++;
+    BallControl_InvalidateVelocity();
+    if (position_filter_valid != 0U)
+    {
+        /* 当前帧无效时继续用上次有效位置，避免舵机瞬间回水平。 */
+        BallControl_SetPosition(last_position_cm, now_ms);
+    }
+    else
+    {
+        BallControl_InvalidatePosition();
+    }
+}
+
+static void Shijue_RejectVelocity(uint32_t now_ms)
+{
+    g_shijue_velocity_valid = 0U;
+    g_shijue_velocity_reject_count++;
+    vision_fault_until_ms = now_ms + SHIJUE_FAULT_HOLD_MS;
+    BallControl_InvalidateVelocity();
+    Shijue_RejectPosition(now_ms);
+}
 
 static uint8_t Shijue_CheckFrame(const uint8_t *frame)
 {
@@ -62,6 +105,7 @@ uint8_t Shijue_ParseFrame8(const uint8_t *frame, uint16_t len)
 {
     float value;
     uint8_t valid;
+    uint32_t now_ms;
 
     if ((frame == NULL) || (len != SHIJUE_FRAME_SIZE) ||
         (Shijue_CheckFrame(frame) == 0U))
@@ -72,39 +116,93 @@ uint8_t Shijue_ParseFrame8(const uint8_t *frame, uint16_t len)
 
     value = (float)Shijue_ReadI16Le(&frame[2]) / 100.0f;
     valid = ((frame[4] & 0x01U) != 0U) ? 1U : 0U;
+    now_ms = BSP_TimeMs();
     g_shijue_last_type = frame[1];
     g_shijue_last_seq = frame[5];
 
     switch (frame[1])
     {
     case SHIJUE_TYPE_POSITION:
-        g_shijue_position_valid = valid;
         if (valid != 0U)
         {
+            if ((int32_t)(now_ms - vision_fault_until_ms) < 0)
+            {
+                Shijue_RejectPosition(now_ms);
+                break;
+            }
+            if ((position_filter_valid != 0U) &&
+                (Shijue_Abs(value - last_position_cm) >
+                 SHIJUE_MAX_POSITION_STEP_CM))
+            {
+                if ((position_candidate_count != 0U) &&
+                    (Shijue_Abs(value - position_candidate_cm) <=
+                     SHIJUE_POSITION_CONFIRM_CM))
+                {
+                    position_candidate_count++;
+                }
+                else
+                {
+                    position_candidate_cm = value;
+                    position_candidate_count = 1U;
+                }
+                if (position_candidate_count < SHIJUE_POSITION_CONFIRM_COUNT)
+                {
+                    Shijue_RejectPosition(now_ms);
+                    break;
+                }
+            }
+
+            position_filter_valid = 1U;
+            position_candidate_count = 0U;
+            last_position_cm = value;
+            g_shijue_position_valid = 1U;
             g_shijue_position_cm = value;
-            BallControl_SetPosition(value, BSP_TimeMs());
+            BallControl_SetPosition(value, now_ms);
         }
         else
         {
-            BallControl_InvalidatePosition();
+            g_shijue_position_valid = 0U;
+            position_candidate_count = 0U;
+            if (position_filter_valid != 0U)
+            {
+                /* STATUS无效但仍有数据帧时，保持上次有效位置参与控制。 */
+                BallControl_SetPosition(last_position_cm, now_ms);
+            }
+            else
+            {
+                BallControl_InvalidatePosition();
+            }
         }
         break;
 
     case SHIJUE_TYPE_VELOCITY:
-        g_shijue_velocity_valid = valid;
         if (valid != 0U)
         {
+            if (g_shijue_position_valid == 0U)
+            {
+                /* 位置仍在使用旧值时禁止新速度参与D项，避免控制量跳变。 */
+                g_shijue_velocity_valid = 0U;
+                BallControl_InvalidateVelocity();
+                break;
+            }
+            if (Shijue_Abs(value) > SHIJUE_MAX_VELOCITY_CM_S)
+            {
+                Shijue_RejectVelocity(now_ms);
+                break;
+            }
             /* 小速度视为静止，抑制视觉速度零点附近的抖动。 */
             if ((value > -SHIJUE_VELOCITY_DEADBAND_CM_S) &&
                 (value < SHIJUE_VELOCITY_DEADBAND_CM_S))
             {
                 value = 0.0f;
             }
+            g_shijue_velocity_valid = 1U;
             g_shijue_velocity_cm_s = value;
-            BallControl_SetVelocity(value, BSP_TimeMs());
+            BallControl_SetVelocity(value, now_ms);
         }
         else
         {
+            g_shijue_velocity_valid = 0U;
             BallControl_InvalidateVelocity();
         }
         break;
@@ -200,6 +298,10 @@ uint8_t Shijue_SetOriginTenthCm(uint16_t origin_tenth_cm)
         return 0U;
     }
 
+    /* 换原点会产生合法的位置跳变，下一帧重新建立滤波基准。 */
+    position_filter_valid = 0U;
+    position_candidate_count = 0U;
+    vision_fault_until_ms = 0U;
     tx_seq++;
     return 1U;
 }

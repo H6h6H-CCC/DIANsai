@@ -12,12 +12,13 @@
 
 #define BALL_SERVO_MIN_US          800U
 #define BALL_SERVO_MAX_US          2300U
-#define BALL_SERVO_CENTER_US       1730U
+#define BALL_SERVO_CENTER_US       1750U
 
 #define BALL_MAX_TARGET_ANGLE_DEG  5.0f
 #define BALL_MAX_SAFE_ANGLE_DEG    15.0f
 #define BALL_MAX_SERVO_DELTA_US    1230.0f
 #define BALL_POSITION_I_LIMIT      4.0f
+#define BALL_POSITION_RATE_LIMIT_CM_S 3.0f
 
 /* 初始参数偏保守，现场按位置环再角度环的顺序调节。 */
 #define BALL_POSITION_KP           0.50f
@@ -243,10 +244,17 @@ void BallControl_Process(uint32_t now_ms)
         if ((velocity_valid != 0U) &&
             ((uint32_t)(now_ms - velocity_time_ms) <= BALL_POSITION_TIMEOUT_MS))
         {
-            /* Vision velocity has the same sign as d(position error)/dt. */
+            float position_rate = position_velocity_cm_s;
+
+            /* 限制视觉速度毛刺对D项的冲击，原始视觉速度仍保留用于遥测。 */
+            if (position_rate > BALL_POSITION_RATE_LIMIT_CM_S)
+                position_rate = BALL_POSITION_RATE_LIMIT_CM_S;
+            if (position_rate < -BALL_POSITION_RATE_LIMIT_CM_S)
+                position_rate = -BALL_POSITION_RATE_LIMIT_CM_S;
+            /* 视觉协议直接提供位置误差变化速度，符号与d(error)/dt一致。 */
             target_angle_deg = PID_UpdateWithRate(&position_pid,
                                                    position_error,
-                                                   position_velocity_cm_s,
+                                                   position_rate,
                                                    BALL_OUTER_DT_S)
                              + angle_feedforward_deg;
         }
