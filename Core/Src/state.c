@@ -106,7 +106,9 @@
 #define H6_BASE_PWM                    220
 #define H6_TRACK_KP                      8
 #define H6_RAMP_UP_MS                 2000U
+#define H6_MINUS8_RAMP_UP_MS          2500U
 #define H6_MINUS9_RAMP_UP_MS          2500U
+#define H6_MINUS10_RAMP_UP_MS         2500U
 #define H6_MINUS11_RAMP_UP_MS         2500U
 #define H6_STOP_RAMP_MS               3000U
 #define H6_MARKER_BLACK_COUNT            4U
@@ -170,6 +172,30 @@
 #define H6_MINUS7_BETWEEN_TRIM_DEG        -0.25f
 #define H6_MINUS7_BETWEEN_RAMP_MS          500U
 #define H6_MINUS7_SECOND_EXIT_RAMP_MS      500U
+/* 修改：-8cm独立采用端部HOLD/柔和恢复结构，参数初值按较近的-9cm。 */
+#define H6_MINUS8_HOLD_ENTER_ERROR_CM       0.30f
+#define H6_MINUS8_HOLD_ENTER_SPEED_CM_S     0.80f
+#define H6_MINUS8_HOLD_EXIT_ERROR_CM        0.80f
+#define H6_MINUS8_HOLD_WAKE_ERROR_CM        0.50f
+#define H6_MINUS8_HOLD_WAKE_SPEED_CM_S      1.20f
+#define H6_MINUS8_HOLD_ENTER_CONFIRM_MS      300U
+#define H6_MINUS8_HOLD_WAKE_CONFIRM_MS       100U
+#define H6_MINUS8_HOLD_ARM_MS               5000U
+#define H6_MINUS8_START_TRIM_DEG             -0.75f
+#define H6_MINUS8_START_FULL_ERROR_CM          0.50f
+#define H6_MINUS8_START_RELEASE_SPEED_CM_S     0.20f
+#define H6_MINUS8_START_FF_OUT_START_MS      1800U
+#define H6_MINUS8_START_FF_OUT_END_MS        2500U
+#define H6_MINUS8_HOLD_TRIM_DEG               0.03f
+#define H6_MINUS8_START_KP                     0.45f
+#define H6_MINUS8_START_KI                     0.06f
+#define H6_MINUS8_START_KD                     0.30f
+#define H6_MINUS8_RECOVERY_ENTER_CM           -0.30f
+#define H6_MINUS8_RECOVERY_ENTER_SPEED_CM_S    0.50f
+#define H6_MINUS8_RECOVERY_KP                   0.25f
+#define H6_MINUS8_RECOVERY_KI                   0.00f
+#define H6_MINUS8_RECOVERY_KD                   0.20f
+#define H6_MINUS8_RECOVERY_CONFIRM_MS            300U
 #define H6_MINUS9_HOLD_ENTER_ERROR_CM       0.30f
 #define H6_MINUS9_HOLD_ENTER_SPEED_CM_S     0.80f
 #define H6_MINUS9_HOLD_EXIT_ERROR_CM        0.80f
@@ -193,6 +219,30 @@
 #define H6_MINUS9_RECOVERY_KI                    0.00f
 #define H6_MINUS9_RECOVERY_KD                    0.20f
 #define H6_MINUS9_RECOVERY_CONFIRM_MS             300U
+/* 修改：-10cm端部结构参数由-9/-11cm取中值，仍保留独立调参入口。 */
+#define H6_MINUS10_HOLD_ENTER_ERROR_CM       0.30f
+#define H6_MINUS10_HOLD_ENTER_SPEED_CM_S     0.80f
+#define H6_MINUS10_HOLD_EXIT_ERROR_CM        0.80f
+#define H6_MINUS10_HOLD_WAKE_ERROR_CM        0.50f
+#define H6_MINUS10_HOLD_WAKE_SPEED_CM_S      1.20f
+#define H6_MINUS10_HOLD_ENTER_CONFIRM_MS      300U
+#define H6_MINUS10_HOLD_WAKE_CONFIRM_MS       100U
+#define H6_MINUS10_HOLD_ARM_MS               5000U
+#define H6_MINUS10_START_TRIM_DEG             -0.70f
+#define H6_MINUS10_START_FULL_ERROR_CM          0.50f
+#define H6_MINUS10_START_RELEASE_SPEED_CM_S     0.20f
+#define H6_MINUS10_START_FF_OUT_START_MS      1800U
+#define H6_MINUS10_START_FF_OUT_END_MS        2500U
+#define H6_MINUS10_HOLD_TRIM_DEG               0.03f
+#define H6_MINUS10_START_KP                     0.45f
+#define H6_MINUS10_START_KI                     0.06f
+#define H6_MINUS10_START_KD                     0.30f
+#define H6_MINUS10_RECOVERY_ENTER_CM             0.25f
+#define H6_MINUS10_RECOVERY_ENTER_SPEED_CM_S     0.75f
+#define H6_MINUS10_RECOVERY_KP                    0.225f
+#define H6_MINUS10_RECOVERY_KI                    0.00f
+#define H6_MINUS10_RECOVERY_KD                    0.175f
+#define H6_MINUS10_RECOVERY_CONFIRM_MS             300U
 #define H6_MINUS11_HOLD_ENTER_ERROR_CM       0.30f
 #define H6_MINUS11_HOLD_ENTER_SPEED_CM_S     0.80f
 #define H6_MINUS11_HOLD_EXIT_ERROR_CM        0.80f
@@ -405,8 +455,45 @@ static float h6_stable_min_cm;
 static float h6_stable_max_cm;
 static uint8_t h6_flat_done;
 static uint8_t h6_balance_started;
+/* 修改：-7.1~-10.9cm每个0.1cm目标保留独立端部运行状态。 */
+static H6MinusEndRuntime_t h6_minus_between_runtime[40];
+static H6MinusEndRuntime_t h6_minus8_runtime;
 static H6MinusEndRuntime_t h6_minus9_runtime;
+static H6MinusEndRuntime_t h6_minus10_runtime;
 static H6MinusEndRuntime_t h6_minus11_runtime;
+/* 仅作为-7.x参数插值锚点，精确-7.0cm不会进入端部控制结构。 */
+static const H6MinusEndConfig_t h6_minus7_interp_config =
+{
+    -70, H6_RAMP_UP_MS,
+    H6_MINUS8_HOLD_ENTER_ERROR_CM, H6_MINUS8_HOLD_ENTER_SPEED_CM_S,
+    H6_MINUS8_HOLD_EXIT_ERROR_CM, H6_MINUS8_HOLD_WAKE_ERROR_CM,
+    H6_MINUS8_HOLD_WAKE_SPEED_CM_S, H6_MINUS8_HOLD_ENTER_CONFIRM_MS,
+    H6_MINUS8_HOLD_WAKE_CONFIRM_MS, H6_MINUS8_HOLD_ARM_MS,
+    H6_MINUS7_START_TRIM_DEG, H6_MINUS8_START_FULL_ERROR_CM,
+    H6_MINUS8_START_RELEASE_SPEED_CM_S,
+    H6_MINUS7_START_FF_OUT_START_MS, H6_MINUS7_START_FF_OUT_END_MS,
+    H6_MINUS8_HOLD_TRIM_DEG,
+    0.45f, 0.06f, 0.30f,
+    H6_MINUS8_RECOVERY_ENTER_CM, H6_MINUS8_RECOVERY_ENTER_SPEED_CM_S,
+    H6_MINUS8_RECOVERY_KP, H6_MINUS8_RECOVERY_KI, H6_MINUS8_RECOVERY_KD,
+    H6_MINUS8_RECOVERY_CONFIRM_MS
+};
+static const H6MinusEndConfig_t h6_minus8_config =
+{
+    -80, H6_MINUS8_RAMP_UP_MS,
+    H6_MINUS8_HOLD_ENTER_ERROR_CM, H6_MINUS8_HOLD_ENTER_SPEED_CM_S,
+    H6_MINUS8_HOLD_EXIT_ERROR_CM, H6_MINUS8_HOLD_WAKE_ERROR_CM,
+    H6_MINUS8_HOLD_WAKE_SPEED_CM_S, H6_MINUS8_HOLD_ENTER_CONFIRM_MS,
+    H6_MINUS8_HOLD_WAKE_CONFIRM_MS, H6_MINUS8_HOLD_ARM_MS,
+    H6_MINUS8_START_TRIM_DEG, H6_MINUS8_START_FULL_ERROR_CM,
+    H6_MINUS8_START_RELEASE_SPEED_CM_S,
+    H6_MINUS8_START_FF_OUT_START_MS, H6_MINUS8_START_FF_OUT_END_MS,
+    H6_MINUS8_HOLD_TRIM_DEG,
+    H6_MINUS8_START_KP, H6_MINUS8_START_KI, H6_MINUS8_START_KD,
+    H6_MINUS8_RECOVERY_ENTER_CM, H6_MINUS8_RECOVERY_ENTER_SPEED_CM_S,
+    H6_MINUS8_RECOVERY_KP, H6_MINUS8_RECOVERY_KI, H6_MINUS8_RECOVERY_KD,
+    H6_MINUS8_RECOVERY_CONFIRM_MS
+};
 static const H6MinusEndConfig_t h6_minus9_config =
 {
     -90, H6_MINUS9_RAMP_UP_MS,
@@ -422,6 +509,22 @@ static const H6MinusEndConfig_t h6_minus9_config =
     H6_MINUS9_RECOVERY_ENTER_CM, H6_MINUS9_RECOVERY_ENTER_SPEED_CM_S,
     H6_MINUS9_RECOVERY_KP, H6_MINUS9_RECOVERY_KI, H6_MINUS9_RECOVERY_KD,
     H6_MINUS9_RECOVERY_CONFIRM_MS
+};
+static const H6MinusEndConfig_t h6_minus10_config =
+{
+    -100, H6_MINUS10_RAMP_UP_MS,
+    H6_MINUS10_HOLD_ENTER_ERROR_CM, H6_MINUS10_HOLD_ENTER_SPEED_CM_S,
+    H6_MINUS10_HOLD_EXIT_ERROR_CM, H6_MINUS10_HOLD_WAKE_ERROR_CM,
+    H6_MINUS10_HOLD_WAKE_SPEED_CM_S, H6_MINUS10_HOLD_ENTER_CONFIRM_MS,
+    H6_MINUS10_HOLD_WAKE_CONFIRM_MS, H6_MINUS10_HOLD_ARM_MS,
+    H6_MINUS10_START_TRIM_DEG, H6_MINUS10_START_FULL_ERROR_CM,
+    H6_MINUS10_START_RELEASE_SPEED_CM_S,
+    H6_MINUS10_START_FF_OUT_START_MS, H6_MINUS10_START_FF_OUT_END_MS,
+    H6_MINUS10_HOLD_TRIM_DEG,
+    H6_MINUS10_START_KP, H6_MINUS10_START_KI, H6_MINUS10_START_KD,
+    H6_MINUS10_RECOVERY_ENTER_CM, H6_MINUS10_RECOVERY_ENTER_SPEED_CM_S,
+    H6_MINUS10_RECOVERY_KP, H6_MINUS10_RECOVERY_KI, H6_MINUS10_RECOVERY_KD,
+    H6_MINUS10_RECOVERY_CONFIRM_MS
 };
 static const H6MinusEndConfig_t h6_minus11_config =
 {
@@ -474,12 +577,12 @@ static const H6TrimNode_t h6_trim_nodes[H6_TRIM_NODE_COUNT] =
 {
     /* 修改：基础、起步、停车补偿均为独立整数厘米节点。 */
     {-110,  0.0000f, H6_MINUS11_START_TRIM_DEG, 0.0000f},
-    {-100,  0.0000f, -0.7000f,  0.0000f},
+    {-100,  0.0000f, H6_MINUS10_START_TRIM_DEG, 0.0000f},
     { -90,  0.0000f, H6_MINUS9_START_TRIM_DEG,  0.0000f},
-    { -80, -0.0925f, -0.6750f, -0.0025f},
+    { -80, -0.0975f, H6_MINUS8_START_TRIM_DEG, -0.0025f},  /* 修改：补偿值保持独立，端部结构不包含-7cm。 */
     { -70, H6_MINUS7_BASE_TRIM_DEG,
            H6_MINUS7_START_TRIM_DEG, H6_MINUS7_STOP_TRIM_DEG},
-    { -60, -0.0825f, -0.2750f, -0.0025f},
+    { -60, -0.0875f, -0.3500f, -0.0025f},  /* 修改：按新版-7/-5参数重新线性取平均。 */
     { -50, H6_MINUS5_BASE_TRIM_DEG,
            H6_MINUS5_START_TRIM_DEG, H6_MINUS5_STOP_TRIM_DEG},
     { -40,  0.0200f,  0.0900f,  0.0350f},
@@ -2053,22 +2156,109 @@ static void State_H6GetTrim(int16_t target_tenth,
 
 static const H6MinusEndConfig_t *State_H6GetMinusEndConfig(void)
 {
+    const H6MinusEndConfig_t *left;
+    const H6MinusEndConfig_t *right;
+    static H6MinusEndConfig_t interpolated;
+    float ratio;
+
+    /* 修改：精确-7.0cm保留原逻辑，仅-7.1~-11.0cm进入端部结构。 */
+    if ((target_tenth_cm > -71) || (target_tenth_cm < -110))
+    {
+        return 0;
+    }
+    if (target_tenth_cm == h6_minus8_config.target_tenth_cm)
+    {
+        return &h6_minus8_config;
+    }
     if (target_tenth_cm == h6_minus9_config.target_tenth_cm)
     {
         return &h6_minus9_config;
+    }
+    if (target_tenth_cm == h6_minus10_config.target_tenth_cm)
+    {
+        return &h6_minus10_config;
     }
     if (target_tenth_cm == h6_minus11_config.target_tenth_cm)
     {
         return &h6_minus11_config;
     }
-    return 0;
+
+    if (target_tenth_cm > -80)
+    {
+        left = &h6_minus7_interp_config;
+        right = &h6_minus8_config;
+    }
+    else if (target_tenth_cm > -90)
+    {
+        left = &h6_minus8_config;
+        right = &h6_minus9_config;
+    }
+    else if (target_tenth_cm > -100)
+    {
+        left = &h6_minus9_config;
+        right = &h6_minus10_config;
+    }
+    else
+    {
+        left = &h6_minus10_config;
+        right = &h6_minus11_config;
+    }
+
+    ratio = (float)(target_tenth_cm - left->target_tenth_cm) /
+            (float)(right->target_tenth_cm - left->target_tenth_cm);
+#define H6_INTERP_FLOAT(field) \
+    interpolated.field = left->field + (right->field - left->field) * ratio
+#define H6_INTERP_U32(field) \
+    interpolated.field = (uint32_t)((float)left->field + \
+        ((float)right->field - (float)left->field) * ratio + 0.5f)
+    interpolated.target_tenth_cm = target_tenth_cm;
+    H6_INTERP_U32(ramp_up_ms);
+    H6_INTERP_FLOAT(hold_enter_error_cm);
+    H6_INTERP_FLOAT(hold_enter_speed_cm_s);
+    H6_INTERP_FLOAT(hold_exit_error_cm);
+    H6_INTERP_FLOAT(hold_wake_error_cm);
+    H6_INTERP_FLOAT(hold_wake_speed_cm_s);
+    H6_INTERP_U32(hold_enter_confirm_ms);
+    H6_INTERP_U32(hold_wake_confirm_ms);
+    H6_INTERP_U32(hold_arm_ms);
+    H6_INTERP_FLOAT(start_trim_deg);
+    H6_INTERP_FLOAT(start_full_error_cm);
+    H6_INTERP_FLOAT(start_release_speed_cm_s);
+    H6_INTERP_U32(start_ff_out_start_ms);
+    H6_INTERP_U32(start_ff_out_end_ms);
+    H6_INTERP_FLOAT(hold_trim_deg);
+    H6_INTERP_FLOAT(start_kp);
+    H6_INTERP_FLOAT(start_ki);
+    H6_INTERP_FLOAT(start_kd);
+    H6_INTERP_FLOAT(recovery_enter_cm);
+    H6_INTERP_FLOAT(recovery_enter_speed_cm_s);
+    H6_INTERP_FLOAT(recovery_kp);
+    H6_INTERP_FLOAT(recovery_ki);
+    H6_INTERP_FLOAT(recovery_kd);
+    H6_INTERP_U32(recovery_confirm_ms);
+#undef H6_INTERP_FLOAT
+#undef H6_INTERP_U32
+    return &interpolated;
 }
 
 static H6MinusEndRuntime_t *State_H6GetMinusEndRuntime(void)
 {
+    if ((target_tenth_cm >= -110) && (target_tenth_cm <= -71) &&
+        ((target_tenth_cm % 10) != 0))
+    {
+        return &h6_minus_between_runtime[(uint8_t)(-target_tenth_cm - 71)];
+    }
+    if (target_tenth_cm == h6_minus8_config.target_tenth_cm)
+    {
+        return &h6_minus8_runtime;
+    }
     if (target_tenth_cm == h6_minus9_config.target_tenth_cm)
     {
         return &h6_minus9_runtime;
+    }
+    if (target_tenth_cm == h6_minus10_config.target_tenth_cm)
+    {
+        return &h6_minus10_runtime;
     }
     if (target_tenth_cm == h6_minus11_config.target_tenth_cm)
     {
@@ -2286,7 +2476,7 @@ static void State_H6UpdateKick(uint32_t now_ms)
     uint8_t kick_max_count;
     uint32_t kick_elapsed_ms;
 
-    /* -9/-11cm共用端部专用控制，运行和停车阶段均不叠加静摩擦补偿。 */
+    /* 修改：-7.1~-11cm（不含-7.0cm）共用端部结构，不叠加静摩擦补偿。 */
     if (State_H6GetMinusEndConfig() != 0)
     {
         h6_kick_state = 0U;
@@ -2634,7 +2824,7 @@ static float State_GetH6RunFeedforward(uint32_t now_ms)
     float brake_trim_deg = 0.0f;
     float minus_end_start_trim_deg;
 
-    /* 修改：-9/-11cm独立参数共用端部起步流程，越过中心后立即停止反推。 */
+    /* 修改：-7.1~-11cm共用端部起步流程，精确-7.0cm继续走原专用分支。 */
     if ((minus_end_config != 0) && (minus_end_runtime != 0))
     {
         /* 修改：球到过车尾侧且已掉头后，锁死本次起步补偿，避免再次向车头加速。 */
@@ -2859,7 +3049,7 @@ static float State_GetH6StopFeedforward(uint32_t now_ms)
     float unused_start_trim_deg;
     float stop_trim_deg = 0.0f;
 
-    /* -9/-11cm端部独立基线：停车阶段同样只保留双环闭环。 */
+    /* 修改：-7.1~-11cm端部独立基线，停车阶段同样只保留双环闭环。 */
     if (State_H6GetMinusEndConfig() != 0)
     {
         return 0.0f;
@@ -2963,7 +3153,10 @@ static void State_ActivateStart(uint32_t now_ms)
         const H6MinusEndConfig_t *minus_end_config = State_H6GetMinusEndConfig();
 
         State_H6ResetKick();
+        memset(h6_minus_between_runtime, 0, sizeof(h6_minus_between_runtime));
+        State_H6ResetMinusEndRuntime(&h6_minus8_runtime);
         State_H6ResetMinusEndRuntime(&h6_minus9_runtime);
+        State_H6ResetMinusEndRuntime(&h6_minus10_runtime);
         State_H6ResetMinusEndRuntime(&h6_minus11_runtime);
         h6_drive_pwm = 0;
         h6_stop_start_pwm = 0;
@@ -4481,7 +4674,7 @@ void State_Init(void)
     /* 上电进入OLED题目菜单，由按键选择并启动对应状态。 */
     current_mode = STATE_MODE_NONE;
     current_page = STATE_PAGE_SELECT;
-    selected_item = 7U;  /* 修改：当前下地调试默认选中H7，仍由F5进入和启动。 */
+    selected_item = 2U;  /* 修改：调试结束后恢复上电默认选中H2。 */
     target_tenth_cm = 0;
     vision_origin_send_pending = 0U;
     h6_kick_state = 0U;
@@ -4512,7 +4705,10 @@ void State_Init(void)
     h6_stable_max_cm = 0.0f;
     h6_flat_done = 0U;
     h6_balance_started = 0U;
+    memset(h6_minus_between_runtime, 0, sizeof(h6_minus_between_runtime));
+    State_H6ResetMinusEndRuntime(&h6_minus8_runtime);
     State_H6ResetMinusEndRuntime(&h6_minus9_runtime);
+    State_H6ResetMinusEndRuntime(&h6_minus10_runtime);
     State_H6ResetMinusEndRuntime(&h6_minus11_runtime);
     h6_balance_start_ms = 0U;
     h6_start_encoder3 = 0;
