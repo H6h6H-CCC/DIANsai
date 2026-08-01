@@ -7,6 +7,7 @@
 void BallControl_Init(void);
 void BallControl_SetEnabled(uint8_t enabled);
 void BallControl_SetTargetPosition(float target_cm);
+void BallControl_UpdateTargetPosition(float target_cm);
 void BallControl_SetServoCenter(uint16_t center_us);
 void BallControl_SetPositionPid(float kp, float ki, float kd);
 void BallControl_SetAnglePid(float kp, float ki, float kd);

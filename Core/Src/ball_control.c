@@ -113,6 +113,12 @@ void BallControl_SetTargetPosition(float target_cm)
     PID_Reset(&position_pid);
 }
 
+void BallControl_UpdateTargetPosition(float target_cm)
+{
+    /* H7目标过渡连续更新时保留PID历史，避免每个控制点都清空微分和积分。 */
+    target_position_cm = target_cm;
+}
+
 void BallControl_SetServoCenter(uint16_t center_us)
 {
     if (center_us < BALL_SERVO_MIN_US) center_us = BALL_SERVO_MIN_US;

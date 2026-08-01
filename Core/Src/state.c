@@ -155,8 +155,8 @@
 #define H6_MINUS5_TRANSITION_START_MS  3000U
 #define H6_MINUS5_TRANSITION_END_MS    5000U
 #define H6_MINUS5_TRANSITION_RAMP_MS    500U
-#define H6_MINUS7_BASE_TRIM_DEG         -0.185f  /* 两圈巡航仍平均偏正约0.47cm，再向车头补偿0.01度。 */
-#define H6_MINUS7_START_TRIM_DEG         -0.65f  /* 两圈峰值均在起步后1.55秒，继续压低起步超调。 */
+#define H6_MINUS7_BASE_TRIM_DEG         -0.195f  /* 两圈巡航仍平均偏正约0.47cm，再向车头补偿0.01度。 */
+#define H6_MINUS7_START_TRIM_DEG         -0.8f  /* 两圈峰值均在起步后1.55秒，继续压低起步超调。 */
 #define H6_MINUS7_START_FF_OUT_START_MS  1200U  /* -7cm独立折中渐出，平衡正负双向超调。 */
 #define H6_MINUS7_START_FF_OUT_END_MS    1700U
 #define H6_MINUS7_STOP_TRIM_DEG          -0.005f
@@ -244,6 +244,47 @@
 #define H6_NEAR_KICK_ANGLE_DEG             0.8f
 #define H6_NEAR_KICK_MAX_COUNT             0U
 
+/* H7独立参数：0cm起步，两个弯道分别平滑切换到+5cm和-5cm。 */
+#define H7_BASE_PWM                       220
+#define H7_TRACK_KP                         8
+#define H7_RAMP_UP_MS                    2000U
+#define H7_STOP_RAMP_MS                  3000U
+#define H7_MARKER_BLACK_COUNT               4U
+#define H7_MARKER_CONFIRM_MS               30U
+#define H7_MARKER_ARM_MS                 24500U
+#define H7_BEND_ARM_MS                    6000U
+#define H7_BEND_EXIT_CONFIRM_MS            300U
+#define H7_SECOND_BEND_MIN_GAP_MS         1000U
+#define H7_TARGET_TRANSITION_MS           3000U  /* 修改：按约4s整段弯道尺度过渡，出弯前留约1s稳定。 */
+#define H7_CENTER_TARGET_CM                0.0f
+#define H7_PLUS_TARGET_TENTH_CM             50
+#define H7_MINUS_TARGET_TENTH_CM           -50
+#define H7_RAMP_FF_DEG                    -0.80f
+#define H7_RUN_FF_DEG                      0.10f
+#define H7_RAMP_FF_IN_MS                    300U
+#define H7_RAMP_FF_OUT_MS                   500U
+#define H7_STOP_FF_DEG                     0.32f
+#define H7_STOP_FF_IN_MS                    200U
+#define H7_STOP_FF_OUT_MS                   600U
+#define H7_CENTER_TRIM_DEG                 0.00f
+#define H7_PLUS5_TRIM_DEG                  0.05f
+#define H7_MINUS5_TRIM_DEG                 0.02f
+#define H7_CENTER_POSITION_KP              0.60f
+#define H7_CENTER_POSITION_KI              0.30f
+#define H7_CENTER_POSITION_KD              0.70f
+#define H7_PLUS5_POSITION_KP               0.50f
+#define H7_PLUS5_POSITION_KI               0.20f
+#define H7_PLUS5_POSITION_KD               0.45f
+#define H7_MINUS5_POSITION_KP              0.45f
+#define H7_MINUS5_POSITION_KI              0.06f
+#define H7_MINUS5_POSITION_KD              0.30f
+#define H7_ANGLE_KP                      100.0f
+#define H7_ANGLE_KI                      100.0f
+#define H7_ANGLE_KD                        0.5f
+#define H7_FLAT_TOLERANCE_CM               0.6f
+#define H7_FLAT_MAX_SPEED_CM_S             1.2f
+#define H7_FLAT_STABLE_RANGE_CM            0.8f
+
 typedef enum
 {
     STATE_MODE_NONE = 0,
@@ -251,7 +292,8 @@ typedef enum
     STATE_MODE_H3_BALL_MOVE = 3,
     STATE_MODE_H4_AB_BALANCE = 4,
     STATE_MODE_H5_LOOP_CENTER = 5,
-    STATE_MODE_H6_LOOP_TARGET = 6
+    STATE_MODE_H6_LOOP_TARGET = 6,
+    STATE_MODE_H7_BEND_TARGET = 7
 } StateMode_t;
 
 typedef enum
@@ -533,6 +575,34 @@ static uint32_t h5_balance_start_ms;
 static int32_t h5_start_encoder3;
 static int32_t h5_start_encoder4;
 
+static int16_t h7_drive_pwm;
+static int16_t h7_stop_start_pwm;
+static const char *h7_drive_phase;
+static uint8_t h7_marker_detected;
+static uint32_t h7_marker_candidate_ms;
+static uint8_t h7_stop_locked;
+static uint8_t h7_black_count;
+static uint8_t h7_gray;
+static const char *h7_bend_state;
+static uint8_t h7_bend_active;
+static uint8_t h7_bend_count;
+static uint32_t h7_bend_last_seen_ms;
+static uint32_t h7_first_bend_exit_ms;
+static uint32_t h7_stop_start_ms;
+static uint8_t h7_target_phase;
+static uint32_t h7_transition_start_ms;
+static float h7_transition_from_cm;
+static float h7_transition_to_cm;
+static float h7_active_target_cm;
+static uint8_t h7_balance_started;
+static uint32_t h7_balance_start_ms;
+static int32_t h7_start_encoder3;
+static int32_t h7_start_encoder4;
+static uint32_t h7_stable_start_ms;
+static float h7_stable_min_cm;
+static float h7_stable_max_cm;
+static uint8_t h7_flat_done;
+
 static uint8_t display_dirty;
 static StatePage_t last_display_page;
 static uint32_t last_display_half_second;
@@ -580,6 +650,7 @@ static void State_H6UpdateKick(uint32_t now_ms);
 static void State_H6UpdateHorizontalHold(uint32_t now_ms);
 static const H6MinusEndConfig_t *State_H6GetMinusEndConfig(void);
 static H6MinusEndRuntime_t *State_H6GetMinusEndRuntime(void);
+static int16_t State_CorrectVisionTarget(int16_t target_tenth_cm);
 static void State_ProcessDebugCommand(void);
 static void State_SendDebugReply(void);
 
@@ -661,6 +732,7 @@ static const char *State_GetModeName(StateMode_t mode)
     case STATE_MODE_H4_AB_BALANCE:  return "H4 AB BALANCE";
     case STATE_MODE_H5_LOOP_CENTER: return "H5 LOOP CENTER";
     case STATE_MODE_H6_LOOP_TARGET: return "H6 LOOP TARGET";
+    case STATE_MODE_H7_BEND_TARGET: return "H7 BEND TARGET";
     default:                        return "SELECT H ITEM";
     }
 }
@@ -737,7 +809,7 @@ static void State_RenderSelect(void)
     char line[17];
 
     if (first_item < 2U) first_item = 2U;
-    if (first_item > 4U) first_item = 4U;
+    if (first_item > 5U) first_item = 5U;
 
     State_ShowLine(1U, "SELECT H ITEM");
     for (row = 0U; row < 3U; row++)
@@ -786,6 +858,10 @@ static void State_RenderReady(void)
         State_FormatTarget(target, sizeof(target));
         State_ShowLine(2U, target);
     }
+    else if (current_mode == STATE_MODE_H7_BEND_TARGET)
+    {
+        State_ShowLine(2U, "0>+5>-5CM");
+    }
     else
     {
         State_ShowLine(2U, "STATE:READY");
@@ -812,7 +888,8 @@ static void State_RenderStatus(uint32_t now_ms)
     }
 
     if (((current_mode == STATE_MODE_H4_AB_BALANCE) ||
-         (current_mode == STATE_MODE_H5_LOOP_CENTER)) &&
+         (current_mode == STATE_MODE_H5_LOOP_CENTER) ||
+         (current_mode == STATE_MODE_H7_BEND_TARGET)) &&
         (current_page == STATE_PAGE_FINISHED))
     {
         /* H4/H5完成页显示冻结时间，精确到0.1秒。 */
@@ -1244,6 +1321,217 @@ static uint8_t State_H6Run(uint32_t now_ms)
     return first_marker;
 }
 
+static void State_H7SetPositionPid(uint8_t target_phase)
+{
+    if (target_phase <= 1U)
+    {
+        BallControl_SetPositionPid(H7_CENTER_POSITION_KP,
+                                   H7_CENTER_POSITION_KI,
+                                   H7_CENTER_POSITION_KD);
+    }
+    else if (target_phase <= 3U)
+    {
+        BallControl_SetPositionPid(H7_PLUS5_POSITION_KP,
+                                   H7_PLUS5_POSITION_KI,
+                                   H7_PLUS5_POSITION_KD);
+    }
+    else
+    {
+        BallControl_SetPositionPid(H7_MINUS5_POSITION_KP,
+                                   H7_MINUS5_POSITION_KI,
+                                   H7_MINUS5_POSITION_KD);
+    }
+}
+
+static void State_H7ResetRun(void)
+{
+    h7_drive_pwm = 0;
+    h7_stop_start_pwm = 0;
+    h7_drive_phase = "UP";
+    h7_marker_detected = 0U;
+    h7_marker_candidate_ms = 0U;
+    h7_stop_locked = 0U;
+    h7_black_count = 0U;
+    h7_gray = Gray_Read();
+    h7_bend_state = "NONE";
+    h7_bend_active = 0U;
+    h7_bend_count = 0U;
+    h7_bend_last_seen_ms = 0U;
+    h7_first_bend_exit_ms = 0U;
+    h7_stop_start_ms = 0U;
+    h7_target_phase = 1U;
+    h7_transition_start_ms = 0U;
+    h7_transition_from_cm = H7_CENTER_TARGET_CM;
+    h7_transition_to_cm = H7_CENTER_TARGET_CM;
+    h7_active_target_cm = H7_CENTER_TARGET_CM;
+    h7_balance_started = 0U;
+    h7_balance_start_ms = 0U;
+    h7_start_encoder3 = Encoder3_GetTotal();
+    h7_start_encoder4 = Encoder4_GetTotal();
+    h7_stable_start_ms = 0U;
+    h7_stable_min_cm = 0.0f;
+    h7_stable_max_cm = 0.0f;
+    h7_flat_done = 0U;
+}
+
+static void State_H7StartTransition(uint32_t now_ms, int16_t target_tenth_cm)
+{
+    h7_transition_start_ms = now_ms;
+    h7_transition_from_cm = h7_active_target_cm;
+    h7_transition_to_cm = (float)State_CorrectVisionTarget(target_tenth_cm) / 10.0f;
+    h7_target_phase = (target_tenth_cm > 0) ? 2U : 4U;
+    State_H7SetPositionPid(h7_target_phase);
+}
+
+static void State_H7UpdateTarget(uint32_t now_ms)
+{
+    uint32_t transition_elapsed_ms;
+
+    if ((h7_target_phase != 2U) && (h7_target_phase != 4U))
+    {
+        return;
+    }
+
+    transition_elapsed_ms = (uint32_t)(now_ms - h7_transition_start_ms);
+    if (transition_elapsed_ms >= H7_TARGET_TRANSITION_MS)
+    {
+        h7_active_target_cm = h7_transition_to_cm;
+        h7_target_phase = (h7_target_phase == 2U) ? 3U : 5U;
+    }
+    else
+    {
+        h7_active_target_cm = h7_transition_from_cm +
+            (h7_transition_to_cm - h7_transition_from_cm) *
+            (float)transition_elapsed_ms / (float)H7_TARGET_TRANSITION_MS;
+    }
+    BallControl_UpdateTargetPosition(h7_active_target_cm);
+}
+
+static uint8_t State_H7Run(uint32_t now_ms)
+{
+    uint32_t elapsed_ms;
+    int16_t turn;
+    uint8_t first_marker = 0U;
+
+    h7_gray = Gray_Read();
+    h7_black_count = 0U;
+    for (uint8_t i = 0U; i < 8U; i++)
+    {
+        if ((h7_gray & (uint8_t)(1U << i)) == 0U)
+        {
+            h7_black_count++;
+        }
+    }
+
+    if (((uint32_t)(now_ms - start_time_ms) >= H7_BEND_ARM_MS) &&
+        ((h7_gray & 0x20U) == 0U))
+    {
+        h7_bend_state = ((h7_gray & 0x40U) == 0U) ? "R2" : "R1";
+        h7_bend_last_seen_ms = now_ms;
+        if ((h7_bend_active == 0U) && (h7_bend_count < 2U) &&
+            ((h7_bend_count == 0U) ||
+             ((uint32_t)(now_ms - h7_first_bend_exit_ms) >=
+              H7_SECOND_BEND_MIN_GAP_MS)))
+        {
+            h7_bend_active = 1U;
+            h7_bend_count++;
+            if (h7_bend_count == 1U)
+            {
+                State_H7StartTransition(now_ms, H7_PLUS_TARGET_TENTH_CM);
+            }
+            else if (h7_bend_count == 2U)
+            {
+                State_H7StartTransition(now_ms, H7_MINUS_TARGET_TENTH_CM);
+            }
+        }
+    }
+    else
+    {
+        h7_bend_state = "NONE";
+        if ((h7_bend_active != 0U) &&
+            ((uint32_t)(now_ms - h7_bend_last_seen_ms) >=
+             H7_BEND_EXIT_CONFIRM_MS))
+        {
+            h7_bend_active = 0U;
+            if (h7_bend_count == 1U)
+            {
+                h7_first_bend_exit_ms = now_ms;
+            }
+        }
+    }
+
+    State_H7UpdateTarget(now_ms);
+    if (h7_stop_locked != 0U)
+    {
+        State_H2Brake();
+        return 0U;
+    }
+
+    if (h7_marker_detected == 0U)
+    {
+        elapsed_ms = (uint32_t)(now_ms - start_time_ms);
+        if (elapsed_ms < H7_RAMP_UP_MS)
+        {
+            h7_drive_phase = "UP";
+            h7_drive_pwm = (int16_t)(((uint32_t)H7_BASE_PWM * elapsed_ms) /
+                                     H7_RAMP_UP_MS);
+        }
+        else
+        {
+            h7_drive_phase = "RUN";
+            h7_drive_pwm = H7_BASE_PWM;
+        }
+
+        /* 已识别第二弯且进入终点时间窗后才允许4黑，终点全黑本身仍会呈现弯道特征。 */
+        if ((h7_bend_count >= 2U) &&
+            (elapsed_ms >= H7_MARKER_ARM_MS) &&
+            (h7_black_count >= H7_MARKER_BLACK_COUNT))
+        {
+            if (h7_marker_candidate_ms == 0U)
+            {
+                h7_marker_candidate_ms = now_ms;
+            }
+            else if ((uint32_t)(now_ms - h7_marker_candidate_ms) >=
+                     H7_MARKER_CONFIRM_MS)
+            {
+                h7_marker_detected = 1U;
+                h7_marker_candidate_ms = 0U;
+                h7_stop_start_ms = now_ms;
+                h7_stop_start_pwm = h7_drive_pwm;
+                h7_drive_phase = "STOP";
+                first_marker = 1U;
+            }
+        }
+        else
+        {
+            h7_marker_candidate_ms = 0U;
+        }
+    }
+    else
+    {
+        elapsed_ms = (uint32_t)(now_ms - h7_stop_start_ms);
+        if (elapsed_ms >= H7_STOP_RAMP_MS)
+        {
+            h7_drive_pwm = 0;
+            h7_drive_phase = "DONE";
+            h7_stop_locked = 1U;
+            State_H2Brake();
+            return 0U;
+        }
+        h7_drive_phase = "STOP";
+        h7_drive_pwm = (int16_t)(((uint32_t)h7_stop_start_pwm *
+                                  (H7_STOP_RAMP_MS - elapsed_ms)) /
+                                 H7_STOP_RAMP_MS);
+    }
+
+    turn = (int16_t)(Gray_GetError() * H7_TRACK_KP);
+    if (turn > h7_drive_pwm) turn = h7_drive_pwm;
+    if (turn < -h7_drive_pwm) turn = -h7_drive_pwm;
+    Moter_A(-h7_drive_pwm - turn);
+    Moter_B(-h7_drive_pwm + turn);
+    return first_marker;
+}
+
 static void State_H5FinishBalance(uint32_t now_ms)
 {
     float position;
@@ -1369,6 +1657,68 @@ static void State_H6FinishBalance(uint32_t now_ms)
     }
 }
 
+static void State_H7FinishBalance(uint32_t now_ms)
+{
+    float position_error;
+
+    State_RunBallControl(now_ms);
+    if (h7_stop_locked == 0U)
+    {
+        return;
+    }
+
+    State_H2Brake();
+    if (h7_flat_done != 0U)
+    {
+        return;
+    }
+    if ((g_shijue_position_valid == 0U) ||
+        (g_shijue_velocity_valid == 0U))
+    {
+        h7_stable_start_ms = 0U;
+        return;
+    }
+
+    position_error = g_shijue_position_cm - h7_active_target_cm;
+    if ((position_error < -H7_FLAT_TOLERANCE_CM) ||
+        (position_error > H7_FLAT_TOLERANCE_CM) ||
+        (g_shijue_velocity_cm_s < -H7_FLAT_MAX_SPEED_CM_S) ||
+        (g_shijue_velocity_cm_s > H7_FLAT_MAX_SPEED_CM_S))
+    {
+        h7_stable_start_ms = 0U;
+        return;
+    }
+
+    if (h7_stable_start_ms == 0U)
+    {
+        h7_stable_start_ms = now_ms;
+        h7_stable_min_cm = g_shijue_position_cm;
+        h7_stable_max_cm = g_shijue_position_cm;
+        return;
+    }
+    if (g_shijue_position_cm < h7_stable_min_cm)
+        h7_stable_min_cm = g_shijue_position_cm;
+    if (g_shijue_position_cm > h7_stable_max_cm)
+        h7_stable_max_cm = g_shijue_position_cm;
+    if ((uint32_t)(now_ms - h7_stable_start_ms) < H3_STABLE_MS)
+    {
+        return;
+    }
+
+    if ((h7_stable_max_cm - h7_stable_min_cm) <= H7_FLAT_STABLE_RANGE_CM)
+    {
+        h7_flat_done = 1U;
+        BallControl_SetAngleFeedforward(0.0f);
+        BallControl_SetEnabled(0U);
+    }
+    else
+    {
+        h7_stable_start_ms = now_ms;
+        h7_stable_min_cm = g_shijue_position_cm;
+        h7_stable_max_cm = g_shijue_position_cm;
+    }
+}
+
 static void State_H4FinishStop(uint32_t now_ms)
 {
     if ((h4_coast_active != 0U) &&
@@ -1476,12 +1826,13 @@ static void State_BeginBalanceCalibration(uint32_t now_ms, uint8_t auto_start)
     BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
     BallControl_SetEnabled(0U);
 
-    /* 进入准备页时同步视觉零点：H3/H4/H5为管中点，H6为所选目标点。 */
+    /* 进入准备页时同步视觉零点：H7和H3/H4/H5固定使用管中点。 */
     vision_origin_send_pending =
         ((current_mode == STATE_MODE_H3_BALL_MOVE) ||
          (current_mode == STATE_MODE_H4_AB_BALANCE) ||
          (current_mode == STATE_MODE_H5_LOOP_CENTER) ||
-         (current_mode == STATE_MODE_H6_LOOP_TARGET)) ? 1U : 0U;
+         (current_mode == STATE_MODE_H6_LOOP_TARGET) ||
+         (current_mode == STATE_MODE_H7_BEND_TARGET)) ? 1U : 0U;
 
     balance_roll_zero_deg = 0.0f;
     balance_wx_zero_dps = 0.0f;
@@ -2141,6 +2492,11 @@ static void State_LoadBallPid(StateMode_t mode)
             BallControl_SetAnglePid(H6_ANGLE_KP, H6_ANGLE_KI, H6_ANGLE_KD);
             break;
 
+        case STATE_MODE_H7_BEND_TARGET:
+            State_H7SetPositionPid(h7_target_phase);
+            BallControl_SetAnglePid(H7_ANGLE_KP, H7_ANGLE_KI, H7_ANGLE_KD);
+            break;
+
         default:
             break;
     }
@@ -2207,6 +2563,62 @@ static float State_GetH5StopFeedforward(uint32_t now_ms)
                (float)H5_STOP_FF_OUT_MS;
     }
     return 0.0f;
+}
+
+static float State_GetH7TargetTrim(void)
+{
+    if (h7_target_phase <= 1U) return H7_CENTER_TRIM_DEG;
+    if (h7_target_phase <= 3U) return H7_PLUS5_TRIM_DEG;
+    return H7_MINUS5_TRIM_DEG;
+}
+
+static float State_GetH7RunFeedforward(uint32_t now_ms)
+{
+    uint32_t balance_elapsed_ms = now_ms - h7_balance_start_ms;
+    uint32_t ramp_elapsed_ms = now_ms - start_time_ms;
+    float trim_deg = State_GetH7TargetTrim();
+
+    if (balance_elapsed_ms < H7_RAMP_FF_IN_MS)
+    {
+        return (H7_RAMP_FF_DEG + trim_deg) *
+               (float)balance_elapsed_ms / (float)H7_RAMP_FF_IN_MS;
+    }
+    if (ramp_elapsed_ms < (H7_RAMP_UP_MS - H7_RAMP_FF_OUT_MS))
+    {
+        return H7_RAMP_FF_DEG + trim_deg;
+    }
+    if (ramp_elapsed_ms < H7_RAMP_UP_MS)
+    {
+        float transition = (float)(ramp_elapsed_ms -
+                           (H7_RAMP_UP_MS - H7_RAMP_FF_OUT_MS)) /
+                           (float)H7_RAMP_FF_OUT_MS;
+        return H7_RAMP_FF_DEG +
+               (H7_RUN_FF_DEG - H7_RAMP_FF_DEG) * transition + trim_deg;
+    }
+    return H7_RUN_FF_DEG + trim_deg;
+}
+
+static float State_GetH7StopFeedforward(uint32_t now_ms)
+{
+    uint32_t stop_elapsed_ms = now_ms - h7_stop_start_ms;
+    float trim_deg = State_GetH7TargetTrim();
+
+    if (stop_elapsed_ms < H7_STOP_FF_IN_MS)
+    {
+        return trim_deg + H7_STOP_FF_DEG *
+               (float)stop_elapsed_ms / (float)H7_STOP_FF_IN_MS;
+    }
+    if (stop_elapsed_ms < (H7_STOP_RAMP_MS - H7_STOP_FF_OUT_MS))
+    {
+        return trim_deg + H7_STOP_FF_DEG;
+    }
+    if (stop_elapsed_ms < H7_STOP_RAMP_MS)
+    {
+        return trim_deg + H7_STOP_FF_DEG *
+               (float)(H7_STOP_RAMP_MS - stop_elapsed_ms) /
+               (float)H7_STOP_FF_OUT_MS;
+    }
+    return trim_deg;
 }
 
 static float State_GetH6RunFeedforward(uint32_t now_ms)
@@ -2590,6 +3002,16 @@ static void State_ActivateStart(uint32_t now_ms)
         BallControl_SetTargetPosition(0.0f);
         BallControl_SetEnabled(0U);
     }
+    else if (current_mode == STATE_MODE_H7_BEND_TARGET)
+    {
+        State_H7ResetRun();
+        State_LoadBallPid(current_mode);
+        BallControl_SetAutoTargetAngle();
+        BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+        BallControl_SetAngleFeedforward(0.0f);
+        BallControl_SetTargetPosition(H7_CENTER_TARGET_CM);
+        BallControl_SetEnabled(0U);
+    }
     display_dirty = 1U;
 }
 
@@ -2611,6 +3033,11 @@ static void State_Start(uint32_t now_ms)
     {
         /* 修改：按下开始就清除上一圈HOLD，避免0.5秒等待阶段显示旧状态。 */
         State_H6ResetMinusEndRuntime(State_H6GetMinusEndRuntime());
+    }
+    else if (current_mode == STATE_MODE_H7_BEND_TARGET)
+    {
+        /* 修改：H7每次按开始都清空上一圈弯道、目标过渡和停车状态。 */
+        State_H7ResetRun();
     }
 
     /* 所有模式的0.5秒等待期间，车轮、球控和舵机都保持静止。 */
@@ -2656,12 +3083,12 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
     case STATE_PAGE_SELECT:
         if (key == KEY_EVENT_1)
         {
-            selected_item = (selected_item <= 2U) ? 6U : selected_item - 1U;
+            selected_item = (selected_item <= 2U) ? 7U : selected_item - 1U;
             display_dirty = 1U;
         }
         else if (key == KEY_EVENT_2)
         {
-            selected_item = (selected_item >= 6U) ? 2U : selected_item + 1U;
+            selected_item = (selected_item >= 7U) ? 2U : selected_item + 1U;
             display_dirty = 1U;
         }
         else if (key == KEY_EVENT_3)
@@ -2670,8 +3097,8 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
             stopped_elapsed_ms = 0U;
             if (current_mode == STATE_MODE_H6_LOOP_TARGET)
             {
-                /* 修改：H6下地动态测试当前默认从-11.0 cm开始。 */
-                State_SetTarget(-110);
+                /* 修改：每次从菜单进入H6都从0.0cm开始，不继承上一次设置。 */
+                State_SetTarget(0);
                 current_page = STATE_PAGE_TARGET_SET;
             }
             else
@@ -2753,6 +3180,11 @@ static void State_HandleKey(KeyEvent_t key, uint32_t now_ms)
                 State_H2Brake();
                 BallControl_SetEnabled(0U);
             }
+            else if (current_mode == STATE_MODE_H7_BEND_TARGET)
+            {
+                State_H2Brake();
+                BallControl_SetEnabled(0U);
+            }
             else if (current_mode == STATE_MODE_H3_BALL_MOVE)
             {
                 BallControl_SetEnabled(0U);
@@ -2796,6 +3228,39 @@ static void State_RunMode(uint32_t now_ms)
             State_End(STATE_PAGE_FINISHED, now_ms);
         }
         break;
+
+    case STATE_MODE_H7_BEND_TARGET:
+    {
+        uint8_t finished = State_H7Run(now_ms);
+
+        if (h7_balance_started == 0U)
+        {
+            if (State_WheelHasMoved(h7_start_encoder3,
+                                    h7_start_encoder4) == 0U)
+            {
+                BallControl_SetEnabled(0U);
+                BallControl_SetServoCenter(BALANCE_SERVO_CENTER_US);
+            }
+            else
+            {
+                h7_balance_started = 1U;
+                h7_balance_start_ms = now_ms;
+                BallControl_SetEnabled(1U);
+            }
+        }
+
+        if (h7_balance_started != 0U)
+        {
+            BallControl_SetAngleFeedforward(State_GetH7RunFeedforward(now_ms));
+            State_RunBallControl(now_ms);
+        }
+        if (finished != 0U)
+        {
+            /* H7第一次有效4黑冻结显示时间，完成页继续3秒缓停和-5cm稳球。 */
+            State_End(STATE_PAGE_FINISHED, now_ms);
+        }
+        break;
+    }
 
     case STATE_MODE_H6_LOOP_TARGET:
     {
@@ -3632,6 +4097,37 @@ static void State_SendBalanceDebug(uint32_t now_ms)
                           (unsigned int)((minus_end_runtime != 0) ?
                                          minus_end_runtime->horizontal_hold : 0U));
     }
+    else if (current_mode == STATE_MODE_H7_BEND_TARGET)
+    {
+        const char *state;
+        const char *target_phase;
+
+        if (current_page == STATE_PAGE_RUNNING) state = "RUN";
+        else if (current_page == STATE_PAGE_FINISHED) state = "FINISH";
+        else if (current_page == STATE_PAGE_STOPPED) state = "STOPPED";
+        else state = "READY";
+
+        if (h7_target_phase == 1U) target_phase = "CENTER";
+        else if (h7_target_phase == 2U) target_phase = "TO+5";
+        else if (h7_target_phase == 3U) target_phase = "+5";
+        else if (h7_target_phase == 4U) target_phase = "TO-5";
+        else target_phase = "-5";
+
+        length = snprintf((char *)balance_debug_buffer,
+                          sizeof(balance_debug_buffer),
+                          "H7 S=%s D=%s BP=%d G=%02X GE=%d BLACK=%u MARK=%u BEND=%s BC=%u PH=%s TP=%s P=%s V=%s E=%s TG=%s A=%s W=%s PWM=%u FLAT=%u PV=%u VV=%u\r\n",
+                          state, h7_drive_phase, (int)h7_drive_pwm,
+                          (unsigned int)h7_gray, (int)Gray_GetError(),
+                          (unsigned int)h7_black_count,
+                          (unsigned int)h7_marker_detected,
+                          h7_bend_state, (unsigned int)h7_bend_count,
+                          target_phase, target_position, position, velocity,
+                          position_error, target_angle, pipe_angle, pipe_gyro,
+                          (unsigned int)BallControl_GetServoPulse(),
+                          (unsigned int)h7_flat_done,
+                          (unsigned int)g_shijue_position_valid,
+                          (unsigned int)g_shijue_velocity_valid);
+    }
     else
     {
     /* 20 Hz遥测匹配115200串口带宽；控制内环仍保持100 Hz。 */
@@ -3985,7 +4481,7 @@ void State_Init(void)
     /* 上电进入OLED题目菜单，由按键选择并启动对应状态。 */
     current_mode = STATE_MODE_NONE;
     current_page = STATE_PAGE_SELECT;
-    selected_item = 4U;  /* 修改：当前下地调试默认选中H4，仍由F5进入和启动。 */
+    selected_item = 7U;  /* 修改：当前下地调试默认选中H7，仍由F5进入和启动。 */
     target_tenth_cm = 0;
     vision_origin_send_pending = 0U;
     h6_kick_state = 0U;
@@ -4066,6 +4562,7 @@ void State_Init(void)
     h5_balance_start_ms = 0U;
     h5_start_encoder3 = 0;
     h5_start_encoder4 = 0;
+    State_H7ResetRun();
     vision_debug_time_ms = now_ms;
     imu_debug_time_ms = now_ms;
     balance_debug_time_ms = now_ms;
@@ -4103,7 +4600,8 @@ void State_RunCurrent(void)
     else if (((current_mode == STATE_MODE_H2_CAR_LOOP) ||
               (current_mode == STATE_MODE_H4_AB_BALANCE) ||
               (current_mode == STATE_MODE_H5_LOOP_CENTER) ||
-              (current_mode == STATE_MODE_H6_LOOP_TARGET)) &&
+              (current_mode == STATE_MODE_H6_LOOP_TARGET) ||
+              (current_mode == STATE_MODE_H7_BEND_TARGET)) &&
              ((current_page == STATE_PAGE_STOPPED) ||
               (current_page == STATE_PAGE_FINISHED)))
     {
@@ -4129,15 +4627,23 @@ void State_RunCurrent(void)
             (void)State_H6Run(now_ms);
             State_H6FinishBalance(now_ms);
         }
+        else if ((current_mode == STATE_MODE_H7_BEND_TARGET) &&
+                 (current_page == STATE_PAGE_FINISHED))
+        {
+            BallControl_SetAngleFeedforward(State_GetH7StopFeedforward(now_ms));
+            (void)State_H7Run(now_ms);
+            State_H7FinishBalance(now_ms);
+        }
         else
         {
             State_H2Brake();
         }
     }
 
-    /* 修改：H3/H6共用20Hz控制遥测，便于复测往返过程。 */
+    /* 修改：H3/H6/H7共用20Hz控制遥测。 */
     if ((current_mode == STATE_MODE_H3_BALL_MOVE) ||
-        (current_mode == STATE_MODE_H6_LOOP_TARGET))
+        (current_mode == STATE_MODE_H6_LOOP_TARGET) ||
+        (current_mode == STATE_MODE_H7_BEND_TARGET))
     {
         State_SendBalanceDebug(now_ms);
     }
